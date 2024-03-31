@@ -34,7 +34,7 @@ After creating a card it will automatically navigate you back to the home screen
 #### Manual RFID Input
 ![](./public/readme/create.png)
 1. Fill out the UID of the RFID card
-2. Fill out the name of the card
+2. Fill out the name of the card, **This name cannot be longer than 12 characters [(enforced by esp32s limit on key length)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html#keys-and-values)**
 3. Fill out the password that you want to be using to login
 4. Press **Create Card**
 

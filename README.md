@@ -22,7 +22,7 @@ This project was limited by scarce parts and limited ESP32 documentation, findin
 ### Wrong Boot Mode on ESP32
 ![](./public/readme/bootmode.png)
 
-This error requires the user to hold down the boot button. The fix is to install a 10uF capacitor between EN and ground on your hardware configuration. 
+This error requires the user to hold down the boot button. The fix is to install a 10uF capacitor between EN and ground on your hardware configuration. (This is a bypass cap therefore needs to be placed positive lead at en)
 
 This seems to only have been encountered on my laptop regardless of if its running windows, or manjaro linux. This was tested with an esp32-wroom and an esp32s2 mini.
 
@@ -55,8 +55,20 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 
 ### ESP binary configuration
 - Have to use pin 17(TX), 18(RX) for debug printing wehn using a HID device
+	- To see how to connect a usb serial cable see this [link](https://www.jeffgeerling.com/blog/2021/attaching-raspberry-pis-serial-console-uart-debugging)
 - assign these through uart1 in esp config, https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/linux-macos-setup.html#console-output-configuration
 - manually change these pins in the menuconfig
+- Do note that if an ESP_ERROR_CHECK is thrown the esp will reset/reboot so do not be alarmed
+
+## Wiring layout for pushbutton 
+- It is better to use a pullup configuration for the pushbutton. Meaning it will output 1 normally, when pulled down to ground, it will output 0. (This is because the ESP32 has an internal pullup resistor that has been enabled). [link](https://esp32.com/viewtopic.php?t=6478)
+- This is better so that you dont export V_BUS out and so it doesnt get shorted to ground crashing your board.
+
+- The opposite way this can be enabled is for 3.3v to go into the GPIO port https://randomnerdtutorials.com/esp32-digital-inputs-outputs-arduino/
+- https://forum.arduino.cc/t/pull-up-or-pull-down-resistors-on-esp32/921334/2
+
+###  Learns with wiring
+- One thing I learnt the hard way by killing an esp32-s2 mini (-$5) is to isolate your breadboard to 1 project at a time. There was current going back into the old esp that was there because of the power rails. Luckily second time I had a usb power meter the second time.
 
 ## References
 - [**Inspiration**](https://github.com/Jaycar-Electronics/RFID-Computer-Login)

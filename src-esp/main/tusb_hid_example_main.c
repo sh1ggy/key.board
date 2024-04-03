@@ -7,6 +7,8 @@
 #include "keyboard_ops.h"
 #include "constants.h"
 
+#include <inttypes.h>
+
 #include <stdlib.h>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -17,6 +19,8 @@
 
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "rc522.h"
+
 
 #define APP_BUTTON (GPIO_NUM_0) // Use BOOT signal by default
 
@@ -107,6 +111,7 @@ typedef enum
 
 APP_STATE state = APP_STATE_RECORDING;
 nvs_handle_t storage_handle;
+rc522_handle_t scanner;
 #define MAX_PASS_SIZE 50
 
 void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass)
@@ -121,8 +126,12 @@ void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass
     size_t str_len = 0;
     esp_err_t err = nvs_get_str(storage_handle, password_key, out_pass, &str_len);
 
-    ESP_ERROR_CHECK(err);
-    //TODO: place check here that the key is even here
+    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGE(TAG, "Password for key '%s' not found in NVS\n", password_key);
+        return;
+    }
 
     if (str_len > max_pass_size)
     {
@@ -133,8 +142,23 @@ void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass
     // TODO return esp error value or make own enum for error handling
 }
 
-#define TRIGGER_BUTTON_PIN GPIO_NUM_10
+#define TRIGGER_BUTTON_PIN GPIO_NUM_12
 #define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
+
+static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    rc522_event_data_t *data = (rc522_event_data_t *)event_data;
+
+    switch (event_id)
+    {
+    case RC522_EVENT_TAG_SCANNED:
+    {
+        rc522_tag_t *tag = (rc522_tag_t *)data->ptr;
+        ESP_LOGI(TAG, "Tag scanned (sn: %" PRIu64 ")", tag->serial_number);
+    }
+    break;
+    }
+}
 
 void app_main(void)
 {
@@ -174,6 +198,18 @@ void app_main(void)
     printf("Opening Non-Volatile Storage (NVS) handle... ");
     err = nvs_open("storage", NVS_READWRITE, &storage_handle);
 
+    rc522_config_t config = {
+        .spi.host = SPI3_HOST,
+        .spi.miso_gpio = GPIO_NUM_11,
+        .spi.mosi_gpio = GPIO_NUM_9,
+        .spi.sck_gpio = GPIO_NUM_7,
+        .spi.sda_gpio = GPIO_NUM_5,
+    };
+
+    rc522_create(&config, &scanner);
+    rc522_register_events(scanner, RC522_EVENT_ANY, rc522_handler, NULL);
+    rc522_start(scanner);
+
     if (err != ESP_OK)
     {
         printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
@@ -199,9 +235,7 @@ void app_main(void)
                 }
                 send_hid_data = !gpio_get_level(APP_BUTTON);
 
-                static bool is_trigger_pressed = false;
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
-                printf("level %d", level);
                 if (!level)
                 {
                     char outpass[MAX_PASS_SIZE];

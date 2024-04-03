@@ -1,33 +1,14 @@
-| Supported Targets | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- |
+# IDF Build version
 
-# TinyUSB Human Interface Device Example
+## TODO
+- [x] Add rfid reader lib
+- [ ] Read preferences value from nvs 
+- [ ] setup HID and CDC interfaces for printing to serial as well
+- [ ] Send and recieve HID data from rfid reader
+- [ ] Reach feature parity with arduino version
+- [ ] Fix build version to stop erroring
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
-
-Human interface devices (HID) are one of the most common USB devices, it is implemented in various devices such as keyboards, mice, game controllers, sensors and alphanumeric display devices.
-In this example, we implement USB keyboard and mouse.
-Upon connection to USB host (PC), the example application will sent 'key a/A pressed & released' events and move mouse in a square trajectory. To send these HID reports again, press the BOOT button, that is present on most ESP development boards (GPIO0).
-
-As a USB stack, a TinyUSB component is used.
-
-## How to use example
-
-### Hardware Required
-
-Any ESP board that have USB-OTG supported.
-
-#### Pin Assignment
-
-_Note:_ In case your board doesn't have micro-USB connector connected to USB-OTG peripheral, you may have to DIY a cable and connect **D+** and **D-** to the pins listed below.
-
-See common pin assignments for USB Device examples from [upper level](../../README.md#common-pin-assignments).
-
-Boot signal (GPIO0) is used to send HID reports to USB host.
-
-### Build and Flash
-
-Build the project and flash it to the board, then run monitor tool to view serial output:
+## Launch instructions
 
 ```bash
 idf.py -p PORT flash monitor

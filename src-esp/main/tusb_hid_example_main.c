@@ -240,7 +240,7 @@ void app_main(void)
                 {
                     char outpass[MAX_PASS_SIZE];
                     ESP_LOGI(TAG, "Got trigger");
-                    get_pass_from_id("something", MAX_PASS_SIZE, outpass);
+                    get_pass_from_id("0", MAX_PASS_SIZE, outpass);
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(100));

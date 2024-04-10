@@ -4,7 +4,17 @@
 - [x] Add rfid reader lib
 - [ ] Read preferences value from nvs 
 - [ ] setup HID and CDC interfaces for printing to serial as well
+    - [ ] attempt with just esp-idf help, enable cdc 
+    - [ ] attempt with tinyusb, enable cdc and hid
+    - Gonna have to setup custom device desc instead of null in order to use CDC as well
+    - This is done by enabling both classes as specificed in tusb_config.h (in example only HID is enabled)
 - [ ] Send and recieve HID data from rfid reader
+    - https://github.com/hathach/tinyusb/blob/master/examples/device/hid_composite/src/main.c#L111
+    - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
+    - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
+    - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
+
+
 - [ ] Reach feature parity with arduino version
 - [ ] Fix build version to stop erroring
 

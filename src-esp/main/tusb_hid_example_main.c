@@ -21,7 +21,6 @@
 #include "nvs.h"
 #include "rc522.h"
 
-
 #define APP_BUTTON (GPIO_NUM_0) // Use BOOT signal by default
 
 /********* Application ***************/
@@ -113,6 +112,7 @@ APP_STATE state = APP_STATE_RECORDING;
 nvs_handle_t storage_handle;
 rc522_handle_t scanner;
 #define MAX_PASS_SIZE 50
+#define NVS_STORAGE_NAMESPACE "kb"
 
 void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass)
 {
@@ -124,7 +124,8 @@ void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass
 
     // Get size first, then save into allocated string
     size_t str_len = 0;
-    esp_err_t err = nvs_get_str(storage_handle, password_key, out_pass, &str_len);
+    // Passing NULL as the value pointer will instead pass the len into str_len
+    esp_err_t err = nvs_get_str(storage_handle, password_key, NULL, &str_len);
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(err);
     if (err == ESP_ERR_NVS_NOT_FOUND)
@@ -137,6 +138,9 @@ void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass
     {
         ESP_LOGE(TAG, "Password for key '%s' is too long to store in memory \n", password_key);
     }
+
+    err = nvs_get_str(storage_handle, password_key, out_pass, &str_len);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
     ESP_LOGI(TAG, "Password value %s", out_pass);
     // TODO return esp error value or make own enum for error handling
@@ -163,14 +167,14 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
 void app_main(void)
 {
     // Initialize button that will trigger HID reports
-    const gpio_config_t boot_button_config = {
-        .pin_bit_mask = BIT64(APP_BUTTON),
-        .mode = GPIO_MODE_INPUT,
-        .intr_type = GPIO_INTR_DISABLE,
-        .pull_up_en = true,
-        .pull_down_en = false,
-    };
-    ESP_ERROR_CHECK(gpio_config(&boot_button_config));
+    // const gpio_config_t boot_button_config = {
+    //     .pin_bit_mask = BIT64(APP_BUTTON),
+    //     .mode = GPIO_MODE_INPUT,
+    //     .intr_type = GPIO_INTR_DISABLE,
+    //     .pull_up_en = true,
+    //     .pull_down_en = false,
+    // };
+    // ESP_ERROR_CHECK(gpio_config(&boot_button_config));
 
     const gpio_config_t trigger_button_config = {
         .pin_bit_mask = TRIGGER_BUTTON_BIT_MASK,
@@ -184,6 +188,7 @@ void app_main(void)
 
     initialise_keyboard();
 
+    // This uses the default nvs partition (nvs) (use menuconfig to specify a custom partition table csv)
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -196,7 +201,8 @@ void app_main(void)
 
     printf("\n");
     printf("Opening Non-Volatile Storage (NVS) handle... ");
-    err = nvs_open("storage", NVS_READWRITE, &storage_handle);
+    // Namespace, read/write, handle
+    err = nvs_open(NVS_STORAGE_NAMESPACE, NVS_READWRITE, &storage_handle);
 
     rc522_config_t config = {
         .spi.host = SPI3_HOST,
@@ -227,13 +233,13 @@ void app_main(void)
         {
             if (tud_mounted())
             {
-                static bool send_hid_data = true;
+                // static bool send_hid_data = true;
 
-                if (send_hid_data)
-                {
-                    app_send_hid_demo();
-                }
-                send_hid_data = !gpio_get_level(APP_BUTTON);
+                // if (send_hid_data)
+                // {
+                //     app_send_hid_demo();
+                // }
+                // send_hid_data = !gpio_get_level(APP_BUTTON);
 
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
                 if (!level)

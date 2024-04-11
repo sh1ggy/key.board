@@ -20,13 +20,14 @@ const uint8_t hid_report_descriptor[] = {
 /**
  * @brief String descriptor
  */
-const char *hid_string_descriptor[5] = {
+const char *hid_string_descriptor[] = {
     // array of pointer to string descriptors
-    (char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Kongi Industries",   // 1: Manufacturer
-    "Keydotboard",        // 2: Product
-    "123456",             // 3: Serials, should use chip ID
-    "KeyDOTboard dongle", // 4: HID
+    (char[]){0x09, 0x04},          // 0: is supported language is English (0x0409)
+    "Kongi Industries",            // 1: Manufacturer
+    "Keydotboard",                 // 2: Product
+    "123456",                      // 3: Serials, should use chip ID
+    "KeyDOTboard dongle",          // 4: HID
+    "KeyDOTboard debug interface", // 5: CDC
 };
 
 /**
@@ -40,10 +41,15 @@ static const uint8_t hid_configuration_descriptor[] = {
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
     TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), 0x81, 16, 10),
+
+    // Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
+
 };
 
 /*** Keyboard Initialisation ****/
-void initialise_keyboard() {
+void initialise_keyboard()
+{
 
     ESP_LOGI(TAG, "USB initialization");
     const tinyusb_config_t tusb_cfg = {
@@ -56,7 +62,6 @@ void initialise_keyboard() {
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
-
 }
 
 /********* TinyUSB HID callbacks ***************/
@@ -88,4 +93,3 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
 {
 }
-

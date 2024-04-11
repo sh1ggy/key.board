@@ -1,11 +1,18 @@
 #include "keyboard_ops.h"
+
+#include "tinyusb.h"
 #include "constants.h"
 
 #include "esp_log.h"
 
 /************* TinyUSB descriptors ****************/
 
-#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
+
+// //------------- CLASS -------------// (Just confirming that these are activated)
+// #define CFG_TUD_CDC              1
+// #define CFG_TUD_HID               1
+
+#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 
 /**
  * @brief HID report descriptor
@@ -20,14 +27,22 @@ const uint8_t hid_report_descriptor[] = {
 /**
  * @brief String descriptor
  */
-const char *hid_string_descriptor[5] = {
+const char *hid_string_descriptor[] = {
     // array of pointer to string descriptors
-    (char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Kongi Industries",   // 1: Manufacturer
-    "Keydotboard",        // 2: Product
-    "123456",             // 3: Serials, should use chip ID
-    "KeyDOTboard dongle", // 4: HID
+    (char[]){0x09, 0x04},          // 0: is supported language is English (0x0409)
+    "Kongi Industries",            // 1: Manufacturer
+    "Keydotboard",                 // 2: Product
+    "123456",                      // 3: Serials, should use chip ID
+    "KeyDOTboard dongle",          // 4: HID
+    "KeyDOTboard debug interface", // 5: CDC
 };
+
+
+#define EPNUM_CDC_NOTIF   0x81
+#define EPNUM_CDC_OUT     0x02
+#define EPNUM_CDC_IN      0x82
+#define EPNUM_HID   0x83
+
 
 /**
  * @brief Configuration descriptor
@@ -39,11 +54,17 @@ static const uint8_t hid_configuration_descriptor[] = {
     TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
-    TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), 0x81, 16, 10),
+    TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), EPNUM_HID, 16, 10),
+
+    // Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+    TUD_CDC_DESCRIPTOR(1, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
+
 };
 
+
 /*** Keyboard Initialisation ****/
-void initialise_keyboard() {
+void initialise_keyboard()
+{
 
     ESP_LOGI(TAG, "USB initialization");
     const tinyusb_config_t tusb_cfg = {
@@ -56,7 +77,6 @@ void initialise_keyboard() {
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
-
 }
 
 /********* TinyUSB HID callbacks ***************/
@@ -88,4 +108,3 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
 {
 }
-

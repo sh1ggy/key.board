@@ -215,13 +215,13 @@ void app_main(void)
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
         .rx_unread_buf_sz = 64,
-        .callback_rx = &tinyusb_cdc_rx_callback,
-        // .callback_rx = NULL,
+        // .callback_rx = &tinyusb_cdc_rx_callback,
+        .callback_rx = NULL,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
         .callback_line_coding_changed = NULL};
     tusb_cdc_acm_init(&acm_cfg);
-    // esp_tusb_init_console(TINYUSB_CDC_ACM_0);
+    esp_tusb_init_console(TINYUSB_CDC_ACM_0);
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)

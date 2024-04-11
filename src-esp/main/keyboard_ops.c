@@ -1,11 +1,18 @@
 #include "keyboard_ops.h"
+
+#include "tinyusb.h"
 #include "constants.h"
 
 #include "esp_log.h"
 
 /************* TinyUSB descriptors ****************/
 
-#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
+
+// //------------- CLASS -------------// (Just confirming that these are activated)
+// #define CFG_TUD_CDC              1
+// #define CFG_TUD_HID               1
+
+#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN)
 
 /**
  * @brief HID report descriptor
@@ -30,6 +37,13 @@ const char *hid_string_descriptor[] = {
     "KeyDOTboard debug interface", // 5: CDC
 };
 
+
+#define EPNUM_CDC_NOTIF   0x81
+#define EPNUM_CDC_OUT     0x02
+#define EPNUM_CDC_IN      0x82
+#define EPNUM_HID   0x83
+
+
 /**
  * @brief Configuration descriptor
  *
@@ -40,12 +54,13 @@ static const uint8_t hid_configuration_descriptor[] = {
     TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
-    TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), 0x81, 16, 10),
+    TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), EPNUM_HID, 16, 10),
 
     // Interface number, string index, EP notification address and size, EP data address (out, in) and size.
-    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
+    TUD_CDC_DESCRIPTOR(1, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 
 };
+
 
 /*** Keyboard Initialisation ****/
 void initialise_keyboard()

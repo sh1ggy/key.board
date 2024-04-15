@@ -103,3 +103,28 @@ pub fn read_rfid(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn print_env_vars() {
+        for (key, value) in std::env::vars() {
+            println!("{}: {}", key, value);
+        }
+    }
+
+    #[test]
+    fn test_devices_hid() {
+        let api = hidapi::HidApi::new().unwrap();
+        // Print out information about all connected devices
+        for device in api.device_list() {
+            println!("{:#?}", device);
+        }
+    }
+
+    #[test]
+    fn test_read_hid() {
+        let api = hidapi::HidApi::new().unwrap();
+        let keydot = api.open(1103, 45320).expect("Failed to open device");
+    }
+}

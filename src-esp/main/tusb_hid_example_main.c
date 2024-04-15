@@ -194,15 +194,6 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 
 void app_main(void)
 {
-    // Initialize button that will trigger HID reports
-    // const gpio_config_t boot_button_config = {
-    //     .pin_bit_mask = BIT64(APP_BUTTON),
-    //     .mode = GPIO_MODE_INPUT,
-    //     .intr_type = GPIO_INTR_DISABLE,
-    //     .pull_up_en = true,
-    //     .pull_down_en = false,
-    // };
-    // ESP_ERROR_CHECK(gpio_config(&boot_button_config));
 
     const gpio_config_t trigger_button_config = {
         .pin_bit_mask = TRIGGER_BUTTON_BIT_MASK,
@@ -226,6 +217,7 @@ void app_main(void)
         .callback_line_state_changed = NULL,
         .callback_line_coding_changed = NULL};
     tusb_cdc_acm_init(&acm_cfg);
+    // This allows for usb debugging over cdc
     esp_tusb_init_console(TINYUSB_CDC_ACM_0);
 
     // This uses the default nvs partition (nvs) (use menuconfig to specify a custom partition table csv)
@@ -254,6 +246,7 @@ void app_main(void)
 
     rc522_create(&config, &scanner);
     rc522_register_events(scanner, RC522_EVENT_ANY, rc522_handler, NULL);
+    //Dont need to pause the scanner in whatever mode we operate under
     rc522_start(scanner);
 
     if (err != ESP_OK)
@@ -273,14 +266,6 @@ void app_main(void)
         {
             if (tud_mounted())
             {
-                // static bool send_hid_data = true;
-
-                // if (send_hid_data)
-                // {
-                //     app_send_hid_demo();
-                // }
-                // send_hid_data = !gpio_get_level(APP_BUTTON);
-
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
                 if (!level)
                 {

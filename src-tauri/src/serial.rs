@@ -125,6 +125,19 @@ mod tests {
     #[test]
     fn test_read_hid() {
         let api = hidapi::HidApi::new().unwrap();
-        let keydot = api.open(1103, 45320).expect("Failed to open device");
+        let keydot = api.open(12346, 16389).expect("Failed to open device");
+
+        loop {
+            let mut buf = [0u8; 256];
+            let res = keydot.read(&mut buf[..]).unwrap();
+
+            let mut data_string = String::new();
+
+            for u in &buf[..res] {
+                data_string.push_str(&(u.to_string() + "\t"));
+            }
+
+            println!("{}", data_string);
+        }
     }
 }

@@ -271,6 +271,7 @@ void app_main(void)
                 {
                     char outpass[MAX_PASS_SIZE];
                     ESP_LOGI(TAG, "Got trigger");
+                    app_send_hid_demo();
                     get_pass_from_id("0", MAX_PASS_SIZE, outpass);
                 }
             }

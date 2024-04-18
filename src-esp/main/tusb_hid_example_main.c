@@ -104,7 +104,7 @@ static void app_send_hid_demo(void)
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     ESP_LOGI(TAG, "Sending BEANS");
     uint8_t msg[6] = "beans";
@@ -177,6 +177,7 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
 }
 
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+// Itf stands for interface, it is the number that is specified in the configuration
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     /* initialization */
@@ -195,8 +196,16 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     }
 
     /* write back */
-    // tinyusb_cdcacm_write_queue(itf, buf, rx_size);
-    // tinyusb_cdcacm_write_flush(itf, 0);
+    tinyusb_cdcacm_write_queue(itf, buf, rx_size);
+    tinyusb_cdcacm_write_flush(itf, 0);
+}
+
+void send_serial_msg()
+{
+    char msg[] = "Hello World!";
+
+    tud_cdc_write(msg, sizeof(msg));
+    tud_cdc_write_flush();
 }
 
 void app_main(void)
@@ -218,14 +227,15 @@ void app_main(void)
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
         .rx_unread_buf_sz = 64,
-        // .callback_rx = &tinyusb_cdc_rx_callback,
-        .callback_rx = NULL,
+        .callback_rx = &tinyusb_cdc_rx_callback,
+        // .callback_rx = NULL,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
         .callback_line_coding_changed = NULL};
-    tusb_cdc_acm_init(&acm_cfg);
+    // tinyusb_config_cdcacm_t acm_cfg = {0}; // the configuration uses default values, these are kinda bad and cause the device to stop working after sleep
+    ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
     // This allows for usb debugging over cdc
-    esp_tusb_init_console(TINYUSB_CDC_ACM_0);
+    // esp_tusb_init_console(TINYUSB_CDC_ACM_0);
 
     // This uses the default nvs partition (nvs) (use menuconfig to specify a custom partition table csv)
     esp_err_t err = nvs_flash_init();
@@ -253,7 +263,7 @@ void app_main(void)
 
     rc522_create(&config, &scanner);
     rc522_register_events(scanner, RC522_EVENT_ANY, rc522_handler, NULL);
-    //Dont need to pause the scanner in whatever mode we operate under
+    // Dont need to pause the scanner in whatever mode we operate under
     rc522_start(scanner);
 
     if (err != ESP_OK)
@@ -264,22 +274,25 @@ void app_main(void)
     {
         printf("Done\n");
 
-        // Read
-        printf("Reading restart counter from NVS ... ");
-        int32_t restart_counter = 0; // value will default to 0, if not set yet in NVS
-        err = nvs_get_i32(storage_handle, "restart_counter", &restart_counter);
-
         while (1)
         {
-            if (tud_mounted())
+            // if (tud_mounted())
             {
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
                 if (!level)
                 {
                     char outpass[MAX_PASS_SIZE];
                     ESP_LOGI(TAG, "Got trigger");
-                    app_send_hid_demo();
                     get_pass_from_id("0", MAX_PASS_SIZE, outpass);
+
+                    if (!tud_mounted())
+                    {
+                        ESP_LOGE(TAG, "TUD not connected restarting");
+                        esp_restart();
+                    }
+
+                    app_send_hid_demo();
+                    send_serial_msg();
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(100));

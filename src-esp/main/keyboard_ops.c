@@ -46,6 +46,14 @@ const char *hid_string_descriptor[] = {
 #define EPNUM_CDC_IN 0x82
 #define EPNUM_HID 0x83
 
+enum
+{
+  ITF_NUM_CDC = 0,
+  ITF_NUM_CDC_DATA,
+  ITF_NUM_HID,
+  ITF_NUM_TOTAL
+};
+
 /**
  * @brief Configuration descriptor
  *
@@ -53,7 +61,8 @@ const char *hid_string_descriptor[] = {
  */
 static const uint8_t hid_configuration_descriptor[] = {
     // Configuration number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    // The count here has to be correct, cdc counts for 2
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
     TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor), EPNUM_HID, 16, 10),
@@ -69,6 +78,7 @@ void initialise_keyboard()
 
     ESP_LOGI(TAG, "USB initialization");
     const tinyusb_config_t tusb_cfg = {
+        // .device_descriptor = &desc_device,
         .device_descriptor = NULL,
         .string_descriptor = hid_string_descriptor,
         .string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]),

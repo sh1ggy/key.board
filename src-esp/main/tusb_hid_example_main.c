@@ -103,6 +103,13 @@ static void app_send_hid_demo(void)
         tud_hid_mouse_report(HID_ITF_PROTOCOL_MOUSE, 0x00, delta_x, delta_y, 0, 0);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    ESP_LOGI(TAG, "Sending BEANS");
+    uint8_t msg[6] = "beans";
+    // This sends nothing
+    tud_hid_report(HID_ITF_PROTOCOL_NONE, &msg, 6);
 }
 
 /*******KEYDOTBOARD APP ******/

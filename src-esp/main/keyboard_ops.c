@@ -7,7 +7,6 @@
 
 /************* TinyUSB descriptors ****************/
 
-
 // //------------- CLASS -------------// (Just confirming that these are activated)
 // #define CFG_TUD_CDC              1
 // #define CFG_TUD_HID               1
@@ -22,7 +21,12 @@
  */
 const uint8_t hid_report_descriptor[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD)),
-    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE))};
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE)),
+    //https://github.com/chegewara/EspTinyUSB/blob/master/src/device/hid/hidgeneric.cpp
+    // TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(HID_ITF_PROTOCOL_NONE)),
+    // https://github.com/hathach/tinyusb/blob/e54023d7657c9c090cdb068ce9352c1bba936f2e/examples/device/hid_generic_inout/src/usb_descriptors.c
+    // TUD_HID_REPORT_DESC_GENERIC_INOUT(CFG_TUD_HID_EP_BUFSIZE)
+};
 
 /**
  * @brief String descriptor
@@ -37,12 +41,10 @@ const char *hid_string_descriptor[] = {
     "KeyDOTboard debug interface", // 5: CDC
 };
 
-
-#define EPNUM_CDC_NOTIF   0x81
-#define EPNUM_CDC_OUT     0x02
-#define EPNUM_CDC_IN      0x82
-#define EPNUM_HID   0x83
-
+#define EPNUM_CDC_NOTIF 0x81
+#define EPNUM_CDC_OUT 0x02
+#define EPNUM_CDC_IN 0x82
+#define EPNUM_HID 0x83
 
 /**
  * @brief Configuration descriptor
@@ -60,7 +62,6 @@ static const uint8_t hid_configuration_descriptor[] = {
     TUD_CDC_DESCRIPTOR(1, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 
 };
-
 
 /*** Keyboard Initialisation ****/
 void initialise_keyboard()

@@ -1,6 +1,6 @@
 'use client';
 import { useContext, useEffect, useRef, useState } from "react";
-import { getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, } from "@/lib/services";
+import { getCardsDb, getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, test } from "@/lib/services";
 import { DongleStateContext, DongleState, LoadedCardsContext, NewCardsContext, PortContext } from "./_app";
 import { useToast } from '@/hooks/useToast';
 import { useRouter } from 'next/navigation';
@@ -40,7 +40,10 @@ export default function PortSelection() {
 
 	useEffect(() => {
 		const init = async () => {
-			const recvPorts = await getPorts();
+			await startImports();
+
+
+			const recvPorts = await invoke<string[]>('get_ports');
 			setPorts(recvPorts);
 			if (recvPorts.length != 0)
 				setSelectedPort(recvPorts[0]);
@@ -120,6 +123,7 @@ export default function PortSelection() {
 		// 		rfid: unflattenedUids[i].join('').toLowerCase(),
 		// 	});
 		// }
+		console.log(await getCardsDb());
 
 		setToast("Finished loading data from ESP!");
 		// setCards(gottenCards);
@@ -144,7 +148,8 @@ export default function PortSelection() {
 		<>
 			<button
 				onClick={async () => {
-					const recvPorts = await getPorts();
+					const recvPorts = await invoke<string[]>('get_ports');
+					// const recvPorts = await getPorts();
 					setPorts(recvPorts);
 				}}
 				className="flex px-2 text-sm font-medium text-right justify-end w-full text-white bg-black py-3">

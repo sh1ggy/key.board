@@ -75,11 +75,11 @@ struct ReaderThreadState {
     // Mutex allows our struct to implement DerefMut
     reader_thread: Mutex<Option<SerialThreadInstance>>,
     kill_signal: Arc<AtomicBool>,
+    sender: Option<Sender<DongleRequest>>,
 }
 
 struct SerialThreadInstance {
     thread: thread::JoinHandle<anyhow::Result<()>>,
-    sender: Sender<String>,
 }
 
 #[derive(Default)]
@@ -296,7 +296,6 @@ async fn start_listen_server(
 
     *maybe_old_thread = Some(SerialThreadInstance {
         thread: thread_handle,
-        sender: 
     });
 
     // This returns the error if it exists after the new one got started
@@ -306,7 +305,7 @@ async fn start_listen_server(
 }
 
 #[tauri::command]
-async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThreadState>) -> Result<Vec<Card>, String> {
+async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThreadState>) -> Result<String, String> {
     let handle = tauri::async_runtime::spawn(async {
         // Your long running task here
         // This is just an example, replace it with your actual task
@@ -318,7 +317,7 @@ async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThrea
     let result = handle.await.map_err(|e| e.to_string())?;
     let app_handle = window.app_handle();
 
-    Ok(vec![])
+    Ok(result)
     // //  Send serial message to get cards
     // tauri::async_runtime::spawn(async move {
     //     // A loop that takes output from the async process and sends it
@@ -359,10 +358,12 @@ fn main() {
             start_listen_server,
             test,
             get_current_working_dir,
-            stop_listen_server
+            stop_listen_server,
+            get_cards_db
         ])
         // .setup(|app| setup(app))
         .manage(ReaderThreadState {
+            sender: None,
             reader_thread: Mutex::new(None),
             kill_signal: Arc::new(AtomicBool::new(true)),
         })

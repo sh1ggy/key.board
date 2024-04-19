@@ -1,8 +1,8 @@
-
+'use client';
 // TODO: organize imports to interfaces (likely make a Card component (Model View Controller pattern))
 // import { path, tauri, os } from "@tauri-apps/api";
-import type { path as PathType} from '@tauri-apps/api';
-import type { invoke as InvokeType } from '@tauri-apps/api/tauri'
+import { path } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/tauri'
 
 export const reflashPartition = async (): Promise<Boolean> => {
   // TODO: await command send
@@ -25,12 +25,13 @@ export const reflashPartition = async (): Promise<Boolean> => {
 // }
 
 // Saving the function here makes it reusable across files too
-let invoke: typeof InvokeType;
-let path: typeof PathType;
-export const startImports = async () => {
-  invoke = (await import('@tauri-apps/api')).tauri.invoke;
-  path = (await import('@tauri-apps/api')).path;
-}
+// No longer needed
+// let invoke: typeof InvokeType;
+// let path: typeof PathType;
+// export const startImports = async () => {
+//   invoke = (await import('@tauri-apps/api')).tauri.invoke;
+//   path = (await import('@tauri-apps/api')).path;
+// }
 
 export const startlistenServer = async (portOption: string) => {
   const listenServer = await invoke('start_listen_server', { "port": portOption });

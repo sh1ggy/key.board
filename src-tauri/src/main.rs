@@ -4,7 +4,12 @@
 )]
 
 mod serial;
+use anyhow::{anyhow, bail};
+use serde::{Deserialize, Serialize};
+use serial::get_port_instance;
+use std::borrow::Borrow;
 use std::thread::{self, JoinHandle};
+use std::sync::mpsc::Sender;
 use std::{
     error::Error,
     sync::{atomic::AtomicBool, Arc, Mutex},
@@ -16,18 +21,65 @@ use tauri::{
 };
 
 // Need to implement serde::deserialize trait on this to use in command
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 struct Card {
     name: String,
     password: String,
     rfid: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "request_type")]
+enum DongleRequest {
+    // TX
+    BoardSwitchRead,
+    GetPasswordDescriptions,
+    BoardSwitchMain,
+    NewCard(Card),
+    ClearPasswords,
+
+    // RX
+    SendPasswordDescriptions(PasswordDescriptions),
+    RFIDDetected(RFID),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PasswordLessCard {
+    description: String,
+    password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PasswordDescriptions {
+    descriptions: Vec<PasswordLessCard>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct RFID {
+    rfid: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+enum KeyDotErrors {
+    CouldNotOpenPort { error: String },
+    CouldNotReadPort,
+    CouldNotWritePort,
+    CouldNotStopSerialThread { error: String },
+    CouldNotReadPortBytes,
+    UndigestableJson { error: String, json: String },
+}
+
 // You can have multiple states in tauri app, check https://github.com/tauri-apps/tauri/blob/dev/examples/state/main.rs
 struct ReaderThreadState {
     // Mutex allows our struct to implement DerefMut
-    reader_thread: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
+    reader_thread: Mutex<Option<SerialThreadInstance>>,
     kill_signal: Arc<AtomicBool>,
+}
+
+struct SerialThreadInstance {
+    thread: thread::JoinHandle<anyhow::Result<()>>,
+    sender: Sender<String>,
 }
 
 #[derive(Default)]
@@ -191,20 +243,19 @@ async fn get_current_working_dir() -> Result<String, String> {
 }
 
 fn kill_old_server_thread(
-    maybe_old_thread: &mut Option<JoinHandle<Result<(), String>>>,
+    maybe_old_thread: &mut Option<SerialThreadInstance>,
     // Techinically the atomic bool here is mutable because the reference to the arc is just a reference to heap
     killer: &Arc<AtomicBool>,
-) -> Result<bool, String> {
+) -> anyhow::Result<bool> {
     // Take grabs the value from Option, leaving a none in its place, we need the value in order to actually run join
     match maybe_old_thread.take() {
         Some(old_thread) => {
             println!("Stopping old thread");
             killer.store(true, std::sync::atomic::Ordering::SeqCst);
             old_thread
+                .thread
                 .join()
-                // .unwrap();
-                // Ok(true)
-                .unwrap_or(Err("Could not join thread".to_string()))
+                .unwrap_or(bail!("Could not join thread"))
                 // // The map here propogates the result string if its err, but exports an Ok(true) if not
                 .map(|_| true)
         }
@@ -219,7 +270,7 @@ async fn start_listen_server(
     // Anonymous lifetime specified here because the state object needs to exist for the duration of the function and has reference to AppState
     state: State<'_, ReaderThreadState>,
     port: String,
-) -> Result<(), String> {
+) -> Result<(), KeyDotErrors> {
     let mut maybe_old_thread = state.reader_thread.lock().unwrap();
 
     let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal);
@@ -232,12 +283,21 @@ async fn start_listen_server(
         .store(false, std::sync::atomic::Ordering::SeqCst);
     println!("Starting reader");
 
+    // let port = get_port_instance(&port).map_err(|e| KeyDotErrors::CouldNotOpenPort(e.to_string()))?;
+    let port = get_port_instance(&port).map_err(|e| KeyDotErrors::CouldNotOpenPort {
+        error: e.to_string(),
+    })?;
+
     let app = window.app_handle().clone();
     let kil_signal_clone = state.kill_signal.clone();
 
-    let thread_handle = thread::spawn(move || serial::read_rfid(app, kil_signal_clone, port));
+    let thread_handle =
+        thread::spawn(move || serial::serial_comms_loop(app, kil_signal_clone, port));
 
-    *maybe_old_thread = Some(thread_handle);
+    *maybe_old_thread = Some(SerialThreadInstance {
+        thread: thread_handle,
+        sender: 
+    });
 
     // This returns the error if it exists after the new one got started
     // old_kill_res?;
@@ -245,11 +305,41 @@ async fn start_listen_server(
     Ok(())
 }
 
+#[tauri::command]
+async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThreadState>) -> Result<Vec<Card>, String> {
+    let handle = tauri::async_runtime::spawn(async {
+        // Your long running task here
+        // This is just an example, replace it with your actual task
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let result = "Hello, world!".to_string();
+        result
+    });
+
+    let result = handle.await.map_err(|e| e.to_string())?;
+    let app_handle = window.app_handle();
+
+    Ok(vec![])
+    // //  Send serial message to get cards
+    // tauri::async_runtime::spawn(async move {
+    //     // A loop that takes output from the async process and sends it
+    //     // to the webview via a Tauri Event
+    //     loop {
+    //         if let Some(output) = async_proc_output_rx.recv().await {
+    //             rs2js(output, &app_handle);
+    //         }
+    //     }
+    // });
+}
+
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]
-async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, String> {
+async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, KeyDotErrors> {
     let mut maybe_old_thread = state.reader_thread.lock().unwrap();
-    kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal)
+    kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal).map_err(|e| {
+        KeyDotErrors::CouldNotStopSerialThread {
+            error: e.to_string(),
+        }
+    })
 }
 
 #[tauri::command]

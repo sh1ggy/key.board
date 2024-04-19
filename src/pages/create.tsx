@@ -1,15 +1,17 @@
+'use client';
 import { Navbar } from "@/components/Navbar";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/useToast";
 import { Card } from ".";
 import { reflashPartition } from "@/lib/services";
-import { LoadedBinaryContext, LoadedBinaryState, NewCardsContext, PortContext } from "./_app";
+import { DongleStateContext, DongleState, NewCardsContext, PortContext } from "./_app";
 import CommandTerminal from "@/components/CommandTerminal";
 import { Command } from "@tauri-apps/api/shell";
 import { useError } from "@/hooks/useError";
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { sleep } from "@/lib/utils";
+
 
 const eyeOffIcon = '/eyeOff.svg'
 const eyeOnIcon = '/eyeOn.svg'
@@ -34,11 +36,11 @@ export default function CreateCard() {
 	const router = useRouter();
 	const [selectedPort, setSelectedPort] = useContext(PortContext);
 	const rfidEventUnlisten = useRef<UnlistenFn | null>(null);
-	const [currBin, setCurrentBin] = useContext(LoadedBinaryContext);
+	const [currBin, setCurrentBin] = useContext(DongleStateContext);
 
 	const init = async () => {
 		// Check here if the binary has already been loaded, start up the server
-		if (currBin == LoadedBinaryState.CardReader) {
+		if (currBin == DongleState.CardReader) {
 			const invoke = (await import('@tauri-apps/api')).invoke;
 			const listen = (await import('@tauri-apps/api')).event.listen;
 
@@ -176,7 +178,7 @@ export default function CreateCard() {
 			return;
 		}
 		console.log({ res });
-		setCurrentBin(LoadedBinaryState.CardReader);
+		setCurrentBin(DongleState.CardReader);
 		setToast(`Loaded CardReader binary, starting reader server`);
 		setRunningCommand(false);
 		setIsLoading(false);
@@ -212,10 +214,10 @@ export default function CreateCard() {
 						className="flex flex-col items-center"
 					>
 						<code className='bg-[#8F95A0] cursor-pointer transition duration-300 hover:scale-95 rounded-lg p-3 mt-3 mb-3'>
-							{currBin == LoadedBinaryState.CardReader &&
+							{currBin == DongleState.CardReader &&
 								<strong>UID: {!rfid ? "N/A" : rfid}</strong>
 							}
-							{currBin != LoadedBinaryState.CardReader &&
+							{currBin != DongleState.CardReader &&
 								<>
 									<strong>UID: </strong>
 									<input
@@ -263,7 +265,7 @@ export default function CreateCard() {
 						</div>
 						<div className="flex flex-row items-center justify-center">
 							<label htmlFor="create-card-modal" className="btn btn-ghost">
-								{currBin != LoadedBinaryState.CardReader &&
+								{currBin != DongleState.CardReader &&
 									<>
 										<button
 											onClick={onLoadReaderBin}
@@ -281,7 +283,7 @@ export default function CreateCard() {
 							</button>
 						</label>
 					</form>
-					{(currBin == LoadedBinaryState.CardReader) &&
+					{(currBin == DongleState.CardReader) &&
 						<div className="bg-[#8B89AC] rounded-lg p-6 mt-3">
 							<h1 className='select-none text-center text-white'><strong>Scan RFID card to input UID</strong></h1>
 							<h3 className='select-none text-center text-white text-sm'>Reboot button on ESP32 may need to be pressed</h3>

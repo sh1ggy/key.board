@@ -15,10 +15,10 @@ import '@/styles/xterm.css'
 //   rfid: "112233"
 // }];
 
-export enum LoadedBinaryState {
+export enum DongleState {
   Unknown,
   CardReader,
-  Key
+  Master
 }
 
 // @ts-ignore
@@ -28,13 +28,13 @@ export const LoadedCardsContext = React.createContext<[Card[], React.Dispatch<Re
 // @ts-ignore
 export const NewCardsContext = React.createContext<[Card[], React.Dispatch<React.SetStateAction<Card[]>>]>(null);
 // @ts-ignore
-export const LoadedBinaryContext = React.createContext<[LoadedBinaryState, React.Dispatch<React.SetStateAction<LoadedBinaryState>>]>(null);
+export const DongleStateContext = React.createContext<[DongleState, React.Dispatch<React.SetStateAction<DongleState>>]>(null);
 
-const initialBinaryState = LoadedBinaryState.CardReader;
+const initialDongleState = DongleState.CardReader;
 
 export default function App({ Component, pageProps }: AppProps) {
   const portState = useState<string | null>(null);
-  const binaryState = useState<LoadedBinaryState>(initialBinaryState);
+  const binaryState = useState<DongleState>(initialDongleState);
   const cardsState = useState<Card[]>([]);
   const newCardsState = useState<Card[]>([]);
   const router = useRouter();
@@ -50,12 +50,12 @@ export default function App({ Component, pageProps }: AppProps) {
         <PortContext.Provider value={portState}>
           <LoadedCardsContext.Provider value={cardsState}>
             <NewCardsContext.Provider value={newCardsState}>
-              <LoadedBinaryContext.Provider value={binaryState}>
+              <DongleStateContext.Provider value={binaryState}>
                 <Head>
                   <script src="http://localhost:8097"></script>
                 </Head>
                 <Component {...pageProps} />
-              </LoadedBinaryContext.Provider>
+              </DongleStateContext.Provider>
             </NewCardsContext.Provider>
           </LoadedCardsContext.Provider>
         </PortContext.Provider>

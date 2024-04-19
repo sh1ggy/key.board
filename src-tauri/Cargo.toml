@@ -23,6 +23,7 @@ serialport = "4.2.0"
 hidapi = "2.6.1"
 hex = "0.4.3"
 csv = "1.2.1"
+anyhow = "1.0.72"
 
 [features]
 # by default Tauri runs in production mode

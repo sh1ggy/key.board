@@ -1,6 +1,7 @@
+'use client';
 import { useContext, useEffect, useRef, useState } from "react";
-import { getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, test } from "@/lib/services";
-import { LoadedBinaryContext, LoadedBinaryState, LoadedCardsContext, NewCardsContext, PortContext } from "./_app";
+import { getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, } from "@/lib/services";
+import { DongleStateContext, DongleState, LoadedCardsContext, NewCardsContext, PortContext } from "./_app";
 import { useToast } from '@/hooks/useToast';
 import { useRouter } from 'next/navigation';
 import React from "react";
@@ -9,6 +10,7 @@ import type { Command } from '@tauri-apps/api/shell';
 import { Card } from ".";
 import { useError } from "@/hooks/useError";
 import { truncateString } from "@/lib/utils";
+import { invoke } from "@tauri-apps/api";
 
 type InternalValTypes =
 	"STR" |
@@ -33,16 +35,11 @@ export default function PortSelection() {
 	const [isRunningCommand, setRunningCommand] = useState<boolean>(false);
 	const [cards, setCards] = useContext(LoadedCardsContext);
 	const [newCards, setNewCards] = useContext(NewCardsContext);
-	const [currBin, setCurrentBin] = useContext(LoadedBinaryContext);
+	const [currBin, setCurrentBin] = useContext(DongleStateContext);
 	const setError = useError();
 
 	useEffect(() => {
 		const init = async () => {
-			await startImports();
-			// Reset global state here
-			setCurrentBin(LoadedBinaryState.Unknown);
-
-
 			const recvPorts = await getPorts();
 			setPorts(recvPorts);
 			if (recvPorts.length != 0)
@@ -58,96 +55,75 @@ export default function PortSelection() {
 			return;
 		}
 
-		const Command = (await import('@tauri-apps/api/shell')).Command;
+		// const Command = (await import('@tauri-apps/api/shell')).Command;
 
-		const espBin = await getEspBinDir();
-		let readFileBin = await getReadBinDir();
-		// Name of the sidecar has to match exactly to the scope name
-		getDataCommand.current = Command.sidecar('bin/dist/parttool', [`-e`, `${espBin}`, `--port`, `${selectedPort}`, `--baud`, `115200`, `read_partition`, `--partition-name=nvs`, `--output`, readFileBin]);
+		// const espBin = await getEspBinDir();
+		// let readFileBin = await getReadBinDir();
 
-		// Not needed as execute also submits events for stdout and is more async await agnostic
-		// const childProcess = await getDataCommand.current.spawn();
-		setRunningCommand(true);
+		// // Not needed as execute also submits events for stdout and is more async await agnostic
+		// // const childProcess = await getDataCommand.current.spawn();
+		// setRunningCommand(true);
 
-		let res = await getDataCommand.current.execute();
-		if (res.code != 0) {
-			const bootModeErrorString = "Wrong boot mode detected (0x13)";
-			if (res.stdout.includes(bootModeErrorString)) {
-				// Ping the user that they need to hold down the boot button and try again
-				setError(`You have a buggy ESP32. \
-				Please hold down the BOOT button while the terminal is running commands, or while \`Serial port ${selectedPort}\` is showing`);
-			}
-			else {
-				setError(`Invalid ESP32 port detected, please select a valid port to connect to`);
-				// router.push("/");
-			}
-			setRunningCommand(false);
-			return;
-			
-		}
+		// let res = await getDataCommand.current.execute();
+		// if (res.code != 0) {
+		// 	const bootModeErrorString = "Wrong boot mode detected (0x13)";
+		// 	if (res.stdout.includes(bootModeErrorString)) {
+		// 		// Ping the user that they need to hold down the boot button and try again
+		// 		setError(`You have a buggy ESP32. \
+		// 		Please hold down the BOOT button while the terminal is running commands, or while \`Serial port ${selectedPort}\` is showing`);
+		// 	}
+		// 	else {
+		// 		setError(`Invalid ESP32 port detected, please select a valid port to connect to`);
+		// 		// router.push("/");
+		// 	}
+		// 	setRunningCommand(false);
+		// 	return;
+
+		// }
 
 
 		// let readFileBin = String.raw`C:\Users\anhad\AppData\Local\com.kongi.dev\1683189187486_data.bin`
 
-		setToast(`Saved BinaryFile in: ${readFileBin}`);
-		setRunningCommand(false);
-		// getDataCommand.current = Command.sidecar('bin/dist/analyze_nvs', [`${readFileBin}`, `-j`]);
-		// Saving this as non terminal because printing this will show the password to term
-		const analyzeBinCommand = Command.sidecar('bin/dist/analyze_nvs', [`${readFileBin}`, `-j`]);
+		// let db: DbType;
 
-		setRunningCommand(true);
-		// let analyzeRes = await getDataCommand.current.execute();
-		let analyzeRes = await analyzeBinCommand.execute();
-		console.log({ res: analyzeRes });
+		// try {
+		// 	db = JSON.parse(analyzeRes.stdout) as DbType;
+		// }
+		// catch {
+		// 	setError("Database may be corrupt on device, starting new DB", `DbParse result: ${truncateString(analyzeRes.stdout, 150)}`);
+		// 	setCards([]);
+		// 	setRunningCommand(false);
+		// 	router.push("/");
+		// 	return;
+		// }
+		// const nameSpace = db['kb'];
+		// if (!nameSpace) {
+		// 	setError("No previous DB found of ESP, starting empty DB [Namespace KB not found]")
+		// 	setCards([]);
+		// 	setRunningCommand(false);
+		// 	router.push("/");
+		// 	return;
+		// }
+		// console.log({ db });
+		// const splitUids = nameSpace.uids.value.trim().split(' ');
+		// const unflattenedUids: String[][] = [];
 
-		if (analyzeRes.code != 0) {
-			// KeyError: 0
-			setError("No previous database found on ESP device, starting empty DB");
-			setCards([]);
-			setRunningCommand(false);
-			router.push("/");
-			return;
-		}
-		let db: DbType;
+		// for (let i = 0; i < splitUids.length; i += 4) {
+		// 	unflattenedUids.push(splitUids.slice(i, i + 4));
+		// }
+		// const gottenCards: Card[] = [];
 
-		try {
-			db = JSON.parse(analyzeRes.stdout) as DbType;
-		}
-		catch {
-			setError("Database may be corrupt on device, starting new DB", `DbParse result: ${truncateString(analyzeRes.stdout, 150)}`);
-			setCards([]);
-			setRunningCommand(false);
-			router.push("/");
-			return;
-		}
-		const nameSpace = db['kb'];
-		if (!nameSpace) {
-			setError("No previous DB found of ESP, starting empty DB [Namespace KB not found]")
-			setCards([]);
-			setRunningCommand(false);
-			router.push("/");
-			return;
-		}
-		console.log({ db });
-		const splitUids = nameSpace.uids.value.trim().split(' ');
-		const unflattenedUids: String[][] = [];
-
-		for (let i = 0; i < splitUids.length; i += 4) {
-			unflattenedUids.push(splitUids.slice(i, i + 4));
-		}
-		const gottenCards: Card[] = [];
-
-		for (let i = 0; i < parseInt(nameSpace.num_cards.value); i++) {
-			gottenCards.push({
-				name: nameSpace[`name${i}`].value,
-				password: nameSpace[`pass${i}`].value,
-				rfid: unflattenedUids[i].join('').toLowerCase(),
-			});
-		}
+		// for (let i = 0; i < parseInt(nameSpace.num_cards.value); i++) {
+		// 	gottenCards.push({
+		// 		name: nameSpace[`name${i}`].value,
+		// 		password: nameSpace[`pass${i}`].value,
+		// 		rfid: unflattenedUids[i].join('').toLowerCase(),
+		// 	});
+		// }
 
 		setToast("Finished loading data from ESP!");
-		setCards(gottenCards);
-		setNewCards(gottenCards);
+		// setCards(gottenCards);
+		// setNewCards(gottenCards);
 
 		router.push("/");
 

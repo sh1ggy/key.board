@@ -7,10 +7,10 @@ import { useRouter } from 'next/navigation';
 import { getPorts, reflashPartition, test } from '@/lib/services'
 import { CardsView, CardsViewProps } from '@/components/CardsView'
 import { Navbar } from '@/components/Navbar'
-import { LoadedBinaryContext, LoadedCardsContext, NewCardsContext, PortContext } from './_app'
+import { DongleStateContext, LoadedCardsContext, NewCardsContext, PortContext } from './_app'
 import { useToast } from '@/hooks/useToast';
 import { arraysEqual } from '@/lib/utils';
-import { LoadedBinaryState } from './_app';
+import { DongleState } from './_app';
 
 
 export interface Card {
@@ -39,7 +39,7 @@ function App() {
   const [selectedPort, setSelectedPort] = useContext(PortContext);
   const [cards, setCards] = useContext(LoadedCardsContext);
   const [newCards, setNewCards] = useContext(NewCardsContext);
-  const [binary, setBinary] = useContext(LoadedBinaryContext);
+  const [binary, setBinary] = useContext(DongleStateContext);
 
   useEffect(() => {
     // Listen to tauri events
@@ -72,7 +72,7 @@ function App() {
       <div className={'flex flex-col w-full items-center min-h-screen bg-[rgb(41,40,40)] overflow-hidden'}>
         <div className="flex flex-col w-full items-center p-9 bg-[#5D616C] rounded-b-lg">
           <code className='bg-[#373a41] p-3 my-3 rounded-lg text-[#F7C546]'>
-            <strong>Loaded Binary:</strong> {LoadedBinaryState[binary]}
+            <strong>Loaded Binary:</strong> {DongleState[binary]}
           </code>
           <div className='flex flex-row my-8'>
             <code
@@ -83,7 +83,7 @@ function App() {
               className='cursor-pointer transition duration-300 hover:scale-105 bg-[#8F95A0] p-3 rounded-lg'>
               <strong>Port Selected: </strong>{selectedPort}
             </code>
-            {binary != LoadedBinaryState.Key &&
+            {binary != DongleState.Master &&
               <>
                 <button
                   className="text-gray cursor-pointer transition duration-300 hover:scale-105 text-center p-3 ml-5 focus:ring-4 focus:outline-none focus:ring-green-300 bg-green-600 rounded-lg text-white"

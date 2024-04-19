@@ -20,3 +20,10 @@ export function truncateString(str: string, charsToUse: number = 75) {
     return truncated;
   }
 }
+
+// TODO: use
+export enum KeyDotErrors {
+    CouldNotReadPort,
+    CouldNotWritePort,
+    CouldNotReadPortBytes,
+}

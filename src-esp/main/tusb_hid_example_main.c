@@ -23,6 +23,7 @@
 
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_timer.h"
 #include "rc522.h"
 #include "cJSON.h"
 // https://wokwi.com/projects/395704595737846785
@@ -159,6 +160,7 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
 #define NVS_STORAGE_NAMESPACE "kb"
 #define TRIGGER_BUTTON_PIN GPIO_NUM_12
 #define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
+#define STATE_PRINT_INTERVAL 500 * 1000
 
 APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
@@ -254,7 +256,7 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     /* write back */
     // tinyusb_cdcacm_write_queue(itf, buf, rx_size);
     // tinyusb_cdcacm_write_flush(itf, 0);
-    cJSON *root = cJSON_Parse((char*) buf);
+    cJSON *root = cJSON_Parse((char *)buf);
     char *request_type = cJSON_GetObjectItem(root, "request_type")->valuestring;
     ESP_LOGI(TAG, "request_type=%s", request_type);
 
@@ -277,7 +279,7 @@ void handle_request(cJSON *root)
 }
 
 // TODO: Add error handling
-void create_get_db_response(cJSON *root, char *json_str)
+void create_get_db_response(cJSON *root, char **json_str)
 {
     cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_GET_PASSWORD_DESCS]);
     cJSON *tags = cJSON_CreateArray();
@@ -341,6 +343,11 @@ void init_rfid_tags()
 
         ESP_LOGI(TAG, "Tag %s: (sn: %" PRIu64 "): ", tag_key, rfid_db.serial_number_buffer[i]);
     }
+}
+
+void print_state_cb(void *arg)
+{
+    ESP_LOGI(TAG, "State: %d", state);
 }
 
 void app_main(void)
@@ -410,6 +417,17 @@ void app_main(void)
     rc522_start(scanner);
 
     state = APP_STATE_MASTER_MODE;
+    const esp_timer_create_args_t periodic_timer_args = {
+        .callback = &print_state_cb,
+        /* name is optional, but may help identify the timer when debugging */
+        .name = "periodic state print"
+        // By default the timer is in task callback mode
+    };
+
+    esp_timer_handle_t periodic_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    // This is in microseconds
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
 
     while (1)
     {
@@ -427,6 +445,7 @@ void app_main(void)
 
                 // For some reason (composite device I think) tud dismounts after sleep
                 // TODO: Invetigate this with base HID example that doesnt do this
+                // This may also be the cause of light sleep
                 if (!tud_mounted())
                 {
                     ESP_LOGE(TAG, "TUD not connected restarting");
@@ -443,7 +462,7 @@ void app_main(void)
         {
             cJSON *root = cJSON_CreateObject();
             char *json_str;
-            create_get_db_response(root, json_str);
+            create_get_db_response(root, &json_str);
 
             cJSON_Delete(root);
             ESP_LOGI(TAG, "Sending JSON: %s", json_str);

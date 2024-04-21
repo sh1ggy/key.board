@@ -1,7 +1,6 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Kongi Systems Brisbane, Australia
  *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
 #include "keyboard_ops.h"
@@ -25,8 +24,8 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "rc522.h"
-
-#define APP_BUTTON (GPIO_NUM_0) // Use BOOT signal by default
+#include "cJSON.h"
+// https://wokwi.com/projects/395704595737846785
 
 /********* Application ***************/
 
@@ -113,53 +112,82 @@ static void app_send_hid_demo(void)
 }
 
 /*******KEYDOTBOARD APP ******/
+typedef struct
+{
+    uint64_t *serial_number_buffer;
+    uint32_t total_rfid_tags;
+} RFID_DB_t;
 
 typedef enum
 {
-    APP_STATE_RECORDING,
-    APP_STATE_APPLY_KEYSTROKES
+    APP_STATE_BOOT,
+    APP_STATE_SCANNER_MODE,
+    APP_STATE_MASTER_MODE,
+    APP_STATE_APPLY_KEYSTROKES,
+    APP_STATE_SEND_PASSWORD_DB,
+    APP_STATE_SEND_RFID,
+    APP_STATE_MAX
 } APP_STATE;
 
-APP_STATE state = APP_STATE_RECORDING;
+typedef enum
+{
+    REQUEST_TYPE_GET_PASSWORD_DESCS,
+    REQUEST_TYPE_MAX
+} REQUEST_TYPE;
+
+static const char *REQUEST_TYPE_STR[REQUEST_TYPE_MAX] =
+    {
+        [REQUEST_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
+};
+
+typedef enum
+{
+    RESPONSE_TYPE_GET_PASSWORD_DESCS,
+    RESPONSE_TYPE_DETECTED_RFID,
+    RESPONSE_TYPE_MAX
+
+} RESPONSE_TYPE;
+
+static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
+    {
+        [RESPONSE_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
+        [RESPONSE_TYPE_DETECTED_RFID] = "detected_rfid",
+};
+
+#define MAX_PASS_SIZE 50
+#define MAX_DESC_SIZE 50
+#define NVS_STORAGE_NAMESPACE "kb"
+#define TRIGGER_BUTTON_PIN GPIO_NUM_12
+#define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
+
+APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
 rc522_handle_t scanner;
-#define MAX_PASS_SIZE 50
-#define NVS_STORAGE_NAMESPACE "kb"
+RFID_DB_t rfid_db;
+uint64_t currently_scanned_tag;
+char currently_scanned_pass[MAX_PASS_SIZE];
 
-void get_pass_from_id(char *in_selected_id, size_t max_pass_size, char *out_pass)
+void get_pass_from_id(size_t in_selected_id, char *out_pass)
 {
-
     // key cannot be longer than 15
     char password_key[16];
-    sprintf(password_key, "pass%s", in_selected_id);
+    sprintf(password_key, "pass%zu", in_selected_id);
     printf("Passkey: %s\n", password_key);
 
-    // Get size first, then save into allocated string
-    size_t str_len = 0;
-    // Passing NULL as the value pointer will instead pass the len into str_len
-    esp_err_t err = nvs_get_str(storage_handle, password_key, NULL, &str_len);
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+    // https://github.com/espressif/esp-idf/blob/v5.2.1/examples/storage/nvsgen/main/nvsgen_example_main.c
+    // https://docs.espressif.com/projects/esp-idf/en/stable/esp32s2/api-reference/storage/nvs_flash.html#_CPPv411nvs_get_str12nvs_handle_tPKcPcP6size_t
+    size_t str_len = MAX_PASS_SIZE;
+    esp_err_t err = nvs_get_str(storage_handle, password_key, out_pass, &str_len);
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
         ESP_LOGE(TAG, "Password for key '%s' not found in NVS\n", password_key);
         return;
     }
-
-    if (str_len > max_pass_size)
-    {
-        ESP_LOGE(TAG, "Password for key '%s' is too long to store in memory \n", password_key);
-    }
-
-    err = nvs_get_str(storage_handle, password_key, out_pass, &str_len);
     ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
-    ESP_LOGI(TAG, "Password value %s", out_pass);
+    ESP_LOGI(TAG, "Password value:%s, length:%d", out_pass, str_len);
     // TODO return esp error value or make own enum for error handling
 }
-
-#define TRIGGER_BUTTON_PIN GPIO_NUM_12
-#define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
 
 static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
@@ -171,6 +199,34 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
     {
         rc522_tag_t *tag = (rc522_tag_t *)data->ptr;
         ESP_LOGI(TAG, "Tag scanned (sn: %" PRIu64 ")", tag->serial_number);
+
+        switch (state)
+        {
+        case APP_STATE_SCANNER_MODE:
+        {
+            currently_scanned_tag = tag->serial_number;
+            state = APP_STATE_SEND_RFID;
+            break;
+        }
+        case APP_STATE_MASTER_MODE:
+        {
+            // Check if the tag is in the database
+            for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
+            {
+                if (rfid_db.serial_number_buffer[i] == tag->serial_number)
+                {
+                    char outpass[MAX_PASS_SIZE];
+                    get_pass_from_id(i, outpass);
+                    strcpy(currently_scanned_pass, outpass);
+                    state = APP_STATE_APPLY_KEYSTROKES;
+                    break;
+                }
+            }
+        }
+
+        default:
+            break;
+        }
     }
     break;
     }
@@ -196,21 +252,99 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     }
 
     /* write back */
-    tinyusb_cdcacm_write_queue(itf, buf, rx_size);
-    tinyusb_cdcacm_write_flush(itf, 0);
+    // tinyusb_cdcacm_write_queue(itf, buf, rx_size);
+    // tinyusb_cdcacm_write_flush(itf, 0);
+    cJSON *root = cJSON_Parse((char*) buf);
+    char *request_type = cJSON_GetObjectItem(root, "request_type")->valuestring;
+    ESP_LOGI(TAG, "request_type=%s", request_type);
+
+    cJSON_Delete(root);
+}
+
+void handle_request(cJSON *root)
+{
+    cJSON *request_type = cJSON_GetObjectItem(root, "request_type");
+    if (request_type == NULL)
+    {
+        ESP_LOGE(TAG, "Request type not found in request");
+        return;
+    }
+
+    if (strcmp(request_type->valuestring, REQUEST_TYPE_STR[REQUEST_TYPE_GET_PASSWORD_DESCS]) == 0)
+    {
+        state = APP_STATE_SEND_PASSWORD_DB;
+    }
+}
+
+// TODO: Add error handling
+void create_get_db_response(cJSON *root, char *json_str)
+{
+    cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_GET_PASSWORD_DESCS]);
+    cJSON *tags = cJSON_CreateArray();
+    for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
+    {
+        cJSON *tag = cJSON_CreateObject();
+        cJSON_AddNumberToObject(tag, "rfid", rfid_db.serial_number_buffer[i]);
+
+        // Get the description from nvs, its ok if this takes long, we don't need to cache descs in mem
+        char desc_key[16];
+        sprintf(desc_key, "pass%zu", i);
+        printf("Desckey: %s\n", desc_key);
+
+        char out_desc[MAX_DESC_SIZE];
+        size_t str_len = MAX_DESC_SIZE;
+        esp_err_t err = nvs_get_str(storage_handle, desc_key, out_desc, &str_len);
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+        {
+            ESP_LOGE(TAG, "Desc for key '%s' not found in NVS\n", desc_key);
+            continue;
+        }
+
+        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+
+        cJSON_AddStringToObject(tag, "description", out_desc);
+        cJSON_AddItemToArray(tags, tag);
+    }
+    cJSON_AddItemToObject(root, "descriptions", tags);
+    *json_str = cJSON_Print(root);
 }
 
 void send_serial_msg()
 {
-    char msg[] = "Hello World!";
+    char msg[] = "Hello World!\n";
 
     tud_cdc_write(msg, sizeof(msg));
     tud_cdc_write_flush();
 }
 
+void init_rfid_tags()
+{
+    ESP_LOGI(TAG, "Initialising Tag DB");
+    // Get the total number of tags from nvs
+    esp_err_t err = nvs_get_u32(storage_handle, "total_tags", &rfid_db.total_rfid_tags);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGI(TAG, "No tags found in NVS");
+        return;
+    }
+    // malloc the buffer to match the number of tags
+    rfid_db.serial_number_buffer = (uint64_t *)malloc(rfid_db.total_rfid_tags * sizeof(uint64_t));
+
+    // Get the serial numbers from nvs
+    for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
+    {
+        char tag_key[16];
+        sprintf(tag_key, "tag%zu", i);
+        err = nvs_get_u64(storage_handle, tag_key, &rfid_db.serial_number_buffer[i]);
+        ESP_ERROR_CHECK(err);
+
+        ESP_LOGI(TAG, "Tag %s: (sn: %" PRIu64 "): ", tag_key, rfid_db.serial_number_buffer[i]);
+    }
+}
+
 void app_main(void)
 {
-
     const gpio_config_t trigger_button_config = {
         .pin_bit_mask = TRIGGER_BUTTON_BIT_MASK,
         .mode = GPIO_MODE_INPUT,
@@ -252,6 +386,15 @@ void app_main(void)
     printf("Opening Non-Volatile Storage (NVS) handle... ");
     // Namespace, read/write, handle
     err = nvs_open(NVS_STORAGE_NAMESPACE, NVS_READWRITE, &storage_handle);
+    if (err != ESP_OK)
+    {
+        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        ESP_ERROR_CHECK(err);
+        return;
+    }
+    printf("Done\n");
+
+    init_rfid_tags();
 
     rc522_config_t config = {
         .spi.host = SPI3_HOST,
@@ -260,42 +403,87 @@ void app_main(void)
         .spi.sck_gpio = GPIO_NUM_7,
         .spi.sda_gpio = GPIO_NUM_5,
     };
-
+    // TODO: Add error handling
     rc522_create(&config, &scanner);
     rc522_register_events(scanner, RC522_EVENT_ANY, rc522_handler, NULL);
     // Dont need to pause the scanner in whatever mode we operate under
     rc522_start(scanner);
 
-    if (err != ESP_OK)
-    {
-        printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
-    }
-    else
-    {
-        printf("Done\n");
+    state = APP_STATE_MASTER_MODE;
 
-        while (1)
+    while (1)
+    {
+        switch (state)
+        {
+        case APP_STATE_MASTER_MODE:
         {
             // if (tud_mounted())
+            int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+            if (!level)
             {
-                int level = gpio_get_level(TRIGGER_BUTTON_PIN);
-                if (!level)
+                char outpass[MAX_PASS_SIZE];
+                ESP_LOGI(TAG, "Got trigger");
+                get_pass_from_id(1, outpass);
+
+                // For some reason (composite device I think) tud dismounts after sleep
+                // TODO: Invetigate this with base HID example that doesnt do this
+                if (!tud_mounted())
                 {
-                    char outpass[MAX_PASS_SIZE];
-                    ESP_LOGI(TAG, "Got trigger");
-                    get_pass_from_id("0", MAX_PASS_SIZE, outpass);
-
-                    if (!tud_mounted())
-                    {
-                        ESP_LOGE(TAG, "TUD not connected restarting");
-                        esp_restart();
-                    }
-
-                    app_send_hid_demo();
-                    send_serial_msg();
+                    ESP_LOGE(TAG, "TUD not connected restarting");
+                    esp_restart();
                 }
+
+                app_send_hid_demo();
+                send_serial_msg();
             }
-            vTaskDelay(pdMS_TO_TICKS(100));
+
+            break;
         }
+        case APP_STATE_SEND_PASSWORD_DB:
+        {
+            cJSON *root = cJSON_CreateObject();
+            char *json_str;
+            create_get_db_response(root, json_str);
+
+            cJSON_Delete(root);
+            ESP_LOGI(TAG, "Sending JSON: %s", json_str);
+            // Send the json string
+            tud_cdc_write(json_str, strlen(json_str));
+            tud_cdc_write_flush();
+            free(json_str);
+            state = APP_STATE_SCANNER_MODE;
+            break;
+        }
+        case APP_STATE_SCANNER_MODE:
+        {
+            // state = APP_STATE_APPLY_KEYSTROKES;
+            break;
+        }
+        case APP_STATE_APPLY_KEYSTROKES:
+        {
+            // Apply the keystrokes
+            state = APP_STATE_MASTER_MODE;
+            break;
+        }
+        case APP_STATE_SEND_RFID:
+        {
+            cJSON *root = cJSON_CreateObject();
+            cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_DETECTED_RFID]);
+            cJSON_AddNumberToObject(root, "rfid", currently_scanned_tag);
+            char *json_str = cJSON_Print(root);
+            cJSON_Delete(root);
+            ESP_LOGI(TAG, "Sending JSON: %s", json_str);
+            // Send the json string
+            tud_cdc_write(json_str, strlen(json_str));
+            tud_cdc_write_flush();
+            free(json_str);
+            state = APP_STATE_SCANNER_MODE;
+            break;
+        }
+
+        default:
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

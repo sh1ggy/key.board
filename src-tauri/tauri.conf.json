@@ -99,11 +99,10 @@
     "windows": [
       {
         "fullscreen": false,
-        "maximized": true,
         "height": 700,
+        "width": 1200,
         "resizable": true,
-        "title": "key.board",
-        "width": 1200
+        "title": "key.board"
       }
     ]
   }

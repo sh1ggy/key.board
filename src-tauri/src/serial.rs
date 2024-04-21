@@ -1,13 +1,15 @@
+use anyhow::{anyhow, bail};
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::{
     io,
     sync::{atomic::AtomicBool, Arc},
+    time::SystemTime,
 };
-use tauri::{AppHandle, Manager};
+use tauri::{async_runtime::Receiver, AppHandle, Manager};
 
-use crate::{DongleRequest, KeyDotErrors};
+use crate::{DongleRequest, DongleResponse, KeyDotErrors, SerialThreadRequest};
 
 pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::SerialPort>> {
     const BAUD_RATE: u32 = 115_200;
@@ -17,23 +19,60 @@ pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::
     Ok(res)
 }
 
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub fn serial_comms_loop(
     app: AppHandle,
     kill_signal: Arc<AtomicBool>,
     mut port: Box<dyn SerialPort>,
+    mut request_handler: Receiver<SerialThreadRequest>,
 ) -> anyhow::Result<()> {
-    let id = app.listen_global("dongle_request", |event| {
-        println!("got event-name with payload {:?}", event.payload());
-    });
     // app.emit_to(label, event, payload)
+    println!("Listening on port {:?}", port.name());
 
     loop {
         let mut serial_buf: Vec<u8> = Vec::new();
+        let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
         loop {
+            // This loop runs every available frame
             if kill_signal.load(std::sync::atomic::Ordering::SeqCst) {
                 println!("Kill signal recieved, killing thread");
                 return Ok(());
             }
+
+            // Check if we have a request from the main thread
+            if let Ok(request) = request_handler.try_recv() {
+                // Try and send the request to the dongle, conver the payload into bytes
+                serde_json::to_writer(&mut port, &request.payload)?;
+
+                // If the request doesnt wait for a response, set to None
+                if (request.payload.has_response()) {
+                    current_request = Some((request, SystemTime::now()));
+                }
+            }
+
+            // Check the current request isnt stale in timeouts
+            if let Some((_, time)) = current_request {
+                // dbg!(time.elapsed().unwrap());
+                // println!("in loop");
+                if time.elapsed().unwrap() > REQUEST_TIMEOUT {
+                    if let Some((request, _)) = current_request {
+                        dbg!(&request);
+                        eprint!("Request timed out for {:?}", request.payload);
+                        request
+                            .ret
+                            .send(Err(anyhow!("Request timed out")))
+                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
+
+                        current_request = None;
+                    }
+                }
+            }
+
+
+            //Investigate
+            // serde_json::from_reader(port)
+
             // This is an array of size 1
             let mut byte = [0; 1];
             // TODO: dont unwrap here, this likely means the device may have been disconnected
@@ -58,24 +97,41 @@ pub fn serial_comms_loop(
         }
 
         //Maybe json
-        let maybe_dongle_request: Result<DongleRequest, serde_json::Error> =
+        let maybe_dongle_request: Result<DongleResponse, serde_json::Error> =
             serde_json::from_slice(&serial_buf);
 
         match (maybe_dongle_request) {
-            Ok(request) => {
+            Ok(response) => {
                 // let request: DongleRequest = serde_json::from_slice(&serial_buf)?;
-                println!("WORKING!!!: {:?}", &request);
-                app.emit_all("dongle_request", &request)?;
+                println!("WORKING!!!: {:?}", &response);
+                if let Some((request, _)) = current_request {
+                    if (request.payload.is_correct_response(&response)) {
+                        request
+                            .ret
+                            .send(Ok(response))
+                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
+                    } else {
+                        request
+                            .ret
+                            .send(Err(anyhow!("Incorrect response")))
+                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
+                    }
+                } else {
+                    app.emit_all("dongle_response", &response)?;
+                }
             }
             Err(err) => {
-                eprintln!("Unreadable JSON: {}", err);
-                app.emit_all(
-                    "error",
-                    KeyDotErrors::UndigestableJson {
-                        error: err.to_string(),
-                        json: String::from_utf8(serial_buf.clone())?,
-                    },
-                )?;
+                if let Ok(json_string) = String::from_utf8(serial_buf.clone()) {
+                    eprintln!("Unreadable JSON: {}: err:{}", json_string, err);
+                    app.emit_all(
+                        "error",
+                        KeyDotErrors::UndigestableJson {
+                            error: err.to_string(),
+                            json: json_string,
+                        },
+                    )?;
+                }
+                // bail!("Fuck");
             }
         }
     }
@@ -184,6 +240,8 @@ pub fn read_rfid_old(
 mod tests {
     use serde::{Deserialize, Serialize};
 
+    use crate::DongleRequest;
+
     #[test]
     fn print_env_vars() {
         for (key, value) in std::env::vars() {
@@ -251,5 +309,21 @@ mod tests {
         let c = MyEnum::C;
         let serialized = serde_json::to_string(&c).unwrap();
         println!("{}", serialized);
+    }
+
+    #[test]
+    fn get_dongle_request() {
+        let request = DongleRequest::GetPasswordDescriptionsAndSwitchReader;
+        let serialized = serde_json::to_string(&request).unwrap();
+        println!("{}", serialized);
+    }
+
+    #[test]
+    fn test_errors() {
+        let err: Result<(), String> = Result::Err("wasspoppin".to_string());
+        println!("Printing le error: {:?}", err);
+
+        let err: () =
+            Result::Err("wasspoppin".to_string()).unwrap_or_else(|e| eprintln!("fugg: {}", e));
     }
 }

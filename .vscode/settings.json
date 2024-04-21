@@ -19,6 +19,12 @@
         "xutility": "cpp",
         "string": "cpp",
         "unordered_map": "cpp",
-        "keyboard_ops.h": "c"
+        "keyboard_ops.h": "c",
+        "typeinfo": "c",
+        "tinyusb.h": "c",
+        "*.tcc": "cpp",
+        "random": "cpp",
+        "functional": "cpp",
+        "type_traits": "cpp"
     }
 }

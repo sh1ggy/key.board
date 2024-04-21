@@ -5,20 +5,19 @@
 
 mod serial;
 use anyhow::{anyhow, bail};
+use core::time;
+use std::error::Error;
 use serde::{Deserialize, Serialize};
 use serial::get_port_instance;
-use std::borrow::Borrow;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::sync::mpsc::Sender;
-use std::{
-    error::Error,
-    sync::{atomic::AtomicBool, Arc, Mutex},
-    time::{self},
-};
 use tauri::{
     api::process::{Command, CommandEvent},
+    async_runtime::{channel, Receiver, Sender},
     App, AppHandle, Config, Manager, Runtime, State,
 };
+use tokio::sync::{oneshot, RwLock};
+use tokio::time::timeout;
 
 // Need to implement serde::deserialize trait on this to use in command
 #[derive(Deserialize, Serialize, Debug)]
@@ -32,21 +31,51 @@ struct Card {
 #[serde(tag = "request_type")]
 enum DongleRequest {
     // TX
-    BoardSwitchRead,
-    GetPasswordDescriptions,
+    // https://serde.rs/variant-attrs.html
+    #[serde(rename = "get_pass_descs")]
+    GetPasswordDescriptionsAndSwitchReader,
     BoardSwitchMain,
     NewCard(Card),
     ClearPasswords,
+}
 
+impl DongleRequest {
+    fn has_response(&self) -> bool {
+        match self {
+            DongleRequest::GetPasswordDescriptionsAndSwitchReader => true,
+            _ => false,
+        }
+    }
+
+    fn is_correct_response(&self, response: &DongleResponse) -> bool {
+        match self {
+            DongleRequest::GetPasswordDescriptionsAndSwitchReader => {
+                if let DongleResponse::SendPasswordDescriptions(_) = response {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "response_type")]
+enum DongleResponse {
     // RX
+    #[serde(rename = "get_pass_descs")]
     SendPasswordDescriptions(PasswordDescriptions),
+
+    #[serde(rename = "detected_rfid")]
     RFIDDetected(RFID),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PasswordLessCard {
     description: String,
-    password: String,
+    rfid: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,7 +85,7 @@ struct PasswordDescriptions {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RFID {
-    rfid: String,
+    rfid: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -71,15 +100,23 @@ enum KeyDotErrors {
 }
 
 // You can have multiple states in tauri app, check https://github.com/tauri-apps/tauri/blob/dev/examples/state/main.rs
+//State is just a wrapper on Arc, so you need to use Mutexes ursefl, it allows this to imeplement DerefMut
 struct ReaderThreadState {
-    // Mutex allows our struct to implement DerefMut
-    reader_thread: Mutex<Option<SerialThreadInstance>>,
+    // Rwlock (tokio) or Mutex(std) can be used here since they implement Send+Sync
+    reader_thread: RwLock<Option<SerialThreadInstance>>,
+    // Sending this to another thread hence the Arc
     kill_signal: Arc<AtomicBool>,
-    sender: Option<Sender<DongleRequest>>,
+}
+#[derive(Debug)]
+pub struct SerialThreadRequest {
+    payload: DongleRequest,
+    ret: oneshot::Sender<anyhow::Result<DongleResponse>>,
 }
 
+// Dont need to store a port instance on this since the PORT object is closed when out of scope
 struct SerialThreadInstance {
     thread: thread::JoinHandle<anyhow::Result<()>>,
+    sender: Sender<SerialThreadRequest>,
 }
 
 #[derive(Default)]
@@ -255,7 +292,7 @@ fn kill_old_server_thread(
             old_thread
                 .thread
                 .join()
-                .unwrap_or(bail!("Could not join thread"))
+                .map_err(|e| anyhow!("Could not join old thread"))?
                 // // The map here propogates the result string if its err, but exports an Ok(true) if not
                 .map(|_| true)
         }
@@ -268,10 +305,10 @@ fn kill_old_server_thread(
 async fn start_listen_server(
     window: tauri::Window,
     // Anonymous lifetime specified here because the state object needs to exist for the duration of the function and has reference to AppState
-    state: State<'_, ReaderThreadState>,
+    mut state: State<'_, ReaderThreadState>,
     port: String,
 ) -> Result<(), KeyDotErrors> {
-    let mut maybe_old_thread = state.reader_thread.lock().unwrap();
+    let mut maybe_old_thread = state.reader_thread.write().await;
 
     let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal);
     println!("{:?}", old_kill_res);
@@ -284,18 +321,18 @@ async fn start_listen_server(
     println!("Starting reader");
 
     // let port = get_port_instance(&port).map_err(|e| KeyDotErrors::CouldNotOpenPort(e.to_string()))?;
-    let port = get_port_instance(&port).map_err(|e| KeyDotErrors::CouldNotOpenPort {
-        error: e.to_string(),
-    })?;
+    let port = get_port_instance(&port).unwrap();
 
     let app = window.app_handle().clone();
     let kil_signal_clone = state.kill_signal.clone();
+    let (sender, receiver) = channel(32);
 
     let thread_handle =
-        thread::spawn(move || serial::serial_comms_loop(app, kil_signal_clone, port));
+        thread::spawn(move || serial::serial_comms_loop(app, kil_signal_clone, port, receiver));
 
     *maybe_old_thread = Some(SerialThreadInstance {
         thread: thread_handle,
+        sender,
     });
 
     // This returns the error if it exists after the new one got started
@@ -305,19 +342,31 @@ async fn start_listen_server(
 }
 
 #[tauri::command]
-async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThreadState>) -> Result<String, String> {
-    let handle = tauri::async_runtime::spawn(async {
-        // Your long running task here
-        // This is just an example, replace it with your actual task
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let result = "Hello, world!".to_string();
-        result
-    });
+async fn get_cards_db(
+    window: tauri::Window,
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<PasswordDescriptions, String> {
+    let state = state.reader_thread.read().await;
+    if let Some(state) = &*state {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::GetPasswordDescriptionsAndSwitchReader,
+            ret: ret_tx,
+        };
+        let serial_sender = &state.sender;
+        serial_sender.send(request).await.unwrap();
 
-    let result = handle.await.map_err(|e| e.to_string())?;
-    let app_handle = window.app_handle();
+        let response = ret_rx.await.unwrap().map_err(|e| e.to_string())?;
+        if let DongleResponse::SendPasswordDescriptions(password_descs) = response {
+            Ok(password_descs)
+        }
+        else {
+            Err("Did not get password payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
 
-    Ok(result)
     // //  Send serial message to get cards
     // tauri::async_runtime::spawn(async move {
     //     // A loop that takes output from the async process and sends it
@@ -333,7 +382,7 @@ async fn get_cards_db(window: tauri::Window, state: tauri::State<'_, ReaderThrea
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]
 async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, KeyDotErrors> {
-    let mut maybe_old_thread = state.reader_thread.lock().unwrap();
+    let mut maybe_old_thread = state.reader_thread.write().await;
     kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal).map_err(|e| {
         KeyDotErrors::CouldNotStopSerialThread {
             error: e.to_string(),
@@ -363,8 +412,7 @@ fn main() {
         ])
         // .setup(|app| setup(app))
         .manage(ReaderThreadState {
-            sender: None,
-            reader_thread: Mutex::new(None),
+            reader_thread: RwLock::new(None),
             kill_signal: Arc::new(AtomicBool::new(true)),
         })
         .run(tauri::generate_context!())

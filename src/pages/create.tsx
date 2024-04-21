@@ -3,7 +3,7 @@ import { Navbar } from "@/components/Navbar";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/useToast";
-import { Card } from ".";
+import { Card } from "./main";
 import { reflashPartition } from "@/lib/services";
 import { DongleStateContext, DongleState, NewCardsContext, PortContext } from "./_app";
 import CommandTerminal from "@/components/CommandTerminal";

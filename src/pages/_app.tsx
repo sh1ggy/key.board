@@ -3,7 +3,7 @@ import GlobalToastProvider from '@/components/GlobalToastProvider';
 import GlobalErrorProvider from '@/components/GlobalErrorProvider';
 import { useRouter } from 'next/navigation';
 import type { AppProps } from 'next/app'
-import { Card } from '.';
+import { Card } from './main';
 import Head from 'next/head';
 import '@/styles/globals.css'
 import '@/styles/xterm.css'
@@ -40,7 +40,7 @@ export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
 
   useEffect(() => {
-    if (portState[0] == null) router.push("/ports");
+    // if (portState[0] == null) router.push("/ports");
   }, [])
 
   return (

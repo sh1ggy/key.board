@@ -15,8 +15,14 @@
 - [ ] Reach feature parity with arduino version
 - [ ] Fix build-workflow to stop erroring
 
-## Tips
+## Learns
 - Run `idf.py partition-table` to get the partition table deets
+### Timers
+- The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 
+similar to the teensy. It has a divider, a hardware counter frequency, a max count and an alarm (ISR callback);
+- The [high resolution timer](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_timer.html) (misappropriately named, this is more of a general purpose, higher level timer) 
+is an abstraction over the general purpose timer. It can use software tasks and ISRS and other great functionality.
+- https://www.eevblog.com/forum/microcontrollers/esp32-timers/msg3955919/#msg3955919
 
 ## Launch instructions
 

@@ -1,6 +1,6 @@
 'use client';
 import { useContext, useEffect, useRef, useState } from "react";
-import { getCardsDb, getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, test } from "@/lib/services";
+import { getCardsDb, getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, stoplistenServer, test, testSyncLoop } from "@/lib/services";
 import { DongleStateContext, DongleState, LoadedCardsContext, NewCardsContext, PortContext } from "./_app";
 import { useToast } from '@/hooks/useToast';
 import { useRouter } from 'next/navigation';
@@ -121,8 +121,15 @@ export default function PortSelection() {
 		// 	});
 		// }
 
-		await startlistenServer(selectedPort);
-		console.log(await getCardsDb());
+		try {
+			await startlistenServer(selectedPort);
+			console.log(await getCardsDb());
+		}
+		catch (e: any) {
+			console.error(e);
+			setError("Error connecting to ESP32", e);
+			return;
+		}
 
 		setToast("Finished loading data from ESP!");
 		// setCards(gottenCards);
@@ -152,6 +159,18 @@ export default function PortSelection() {
 				className="flex px-2 text-sm font-medium text-right justify-end w-full text-white bg-black py-3">
 				Force Detect Ports
 			</button>
+
+			<button
+				onClick={async () => {
+
+					await stoplistenServer();
+					// await testSyncLoop();
+				}}
+				className="flex px-2 text-sm font-medium text-right justify-end w-full text-white bg-black py-3">
+					Test Sync loop
+			</button>
+
+
 			<div className="flex flex-col items-center bg-[#292828] h-full w-full">
 				<div className="justify-center text-white w-full text-xl py-6 px-3 bg-[#213352]"><strong>Port Selection</strong></div>
 				<ul className="text-sm text-black w-full bg-[#51555D]" aria-labelledby="dropdownDefaultButton">

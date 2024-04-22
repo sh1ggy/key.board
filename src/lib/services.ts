@@ -35,6 +35,12 @@ export const startImports = async () => {
 export const startlistenServer = async (portOption: string) => {
   const listenServer = await invoke('start_listen_server', { "port": portOption });
 }
+export const stoplistenServer = async () => {
+  await invoke('stop_listen_server');
+}
+export const testSyncLoop = async () => {
+  await invoke('test_sync_loop');
+}
 
 export const getPorts = async () => {
   return await invoke<string[]>('get_ports');

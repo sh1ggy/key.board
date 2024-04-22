@@ -160,7 +160,7 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
 #define NVS_STORAGE_NAMESPACE "kb"
 #define TRIGGER_BUTTON_PIN GPIO_NUM_12
 #define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
-#define STATE_PRINT_INTERVAL 500 * 1000
+#define STATE_PRINT_INTERVAL 5 * 1000 * 1000
 
 APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
@@ -233,8 +233,13 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
     break;
     }
 }
+// https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/performance/size.html#idf-py-size
+// This also helps https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/mem_alloc.html#_CPPv425heap_caps_print_heap_info8uint32_t
+// static uint8_t json_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+// static uint8_t *json_buf_ptr = json_buf;
 
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+void handle_request(cJSON *root);
 // Itf stands for interface, it is the number that is specified in the configuration
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
@@ -245,7 +250,7 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     esp_err_t ret = tinyusb_cdcacm_read(itf, buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size);
     if (ret == ESP_OK)
     {
-        ESP_LOGI(TAG, "Data from channel %d:", itf);
+        ESP_LOGI(TAG, "Data from channel %d, length %d:", itf, rx_size);
         ESP_LOG_BUFFER_HEXDUMP(TAG, buf, rx_size, ESP_LOG_INFO);
     }
     else
@@ -253,26 +258,46 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
         ESP_LOGE(TAG, "Read error");
     }
 
-    /* write back */
-    // tinyusb_cdcacm_write_queue(itf, buf, rx_size);
-    // tinyusb_cdcacm_write_flush(itf, 0);
-    cJSON *root = cJSON_Parse((char *)buf);
-    char *request_type = cJSON_GetObjectItem(root, "request_type")->valuestring;
-    ESP_LOGI(TAG, "request_type=%s", request_type);
+    // Method not needed if the json is sent all at once
+    // int64_t time = esp_timer_get_time();
+    // memcpy(json_buf_ptr, buf, rx_size);
+    // json_buf_ptr += rx_size;
+    // cJSON *root = cJSON_Parse((char *)json_buf);
+    // if (root == NULL)
+    // {
+    //     ESP_LOGE(TAG, "This is NOT valid json: %s", json_buf);
+    // }
+    // else {
+    //     json_buf_ptr = json_buf;
+    //     handle_request(root);
+    // }
 
+    cJSON *root = cJSON_Parse((char *)buf);
+    if (root == NULL)
+    {
+        ESP_LOGE(TAG, "This is NOT valid json: %s", buf);
+    }
+    else
+    {
+        handle_request(root);
+    }
     cJSON_Delete(root);
 }
 
 void handle_request(cJSON *root)
 {
-    cJSON *request_type = cJSON_GetObjectItem(root, "request_type");
-    if (request_type == NULL)
+    cJSON *request_type_json = cJSON_GetObjectItem(root, "request_type");
+    if (request_type_json == NULL)
     {
         ESP_LOGE(TAG, "Request type not found in request");
         return;
     }
 
-    if (strcmp(request_type->valuestring, REQUEST_TYPE_STR[REQUEST_TYPE_GET_PASSWORD_DESCS]) == 0)
+    char *request_type = request_type_json->valuestring;
+
+    ESP_LOGI(TAG, "request_type=%s", request_type);
+
+    if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_GET_PASSWORD_DESCS]) == 0)
     {
         state = APP_STATE_SEND_PASSWORD_DB;
     }
@@ -290,7 +315,7 @@ void create_get_db_response(cJSON *root, char **json_str)
 
         // Get the description from nvs, its ok if this takes long, we don't need to cache descs in mem
         char desc_key[16];
-        sprintf(desc_key, "pass%zu", i);
+        sprintf(desc_key, "name%zu", i);
         printf("Desckey: %s\n", desc_key);
 
         char out_desc[MAX_DESC_SIZE];
@@ -304,11 +329,12 @@ void create_get_db_response(cJSON *root, char **json_str)
 
         ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
-        cJSON_AddStringToObject(tag, "description", out_desc);
+        cJSON_AddStringToObject(tag, "name", out_desc);
         cJSON_AddItemToArray(tags, tag);
     }
     cJSON_AddItemToObject(root, "descriptions", tags);
-    *json_str = cJSON_Print(root);
+    // *json_str = cJSON_Print(root);
+    *json_str = cJSON_PrintUnformatted(root);
 }
 
 void send_serial_msg()
@@ -323,7 +349,7 @@ void init_rfid_tags()
 {
     ESP_LOGI(TAG, "Initialising Tag DB");
     // Get the total number of tags from nvs
-    esp_err_t err = nvs_get_u32(storage_handle, "total_tags", &rfid_db.total_rfid_tags);
+    esp_err_t err = nvs_get_u32(storage_handle, "num_cards", &rfid_db.total_rfid_tags);
 
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
@@ -466,8 +492,9 @@ void app_main(void)
 
             cJSON_Delete(root);
             ESP_LOGI(TAG, "Sending JSON: %s", json_str);
-            // Send the json string
+            // Send the json string and newline to denote end of message
             tud_cdc_write(json_str, strlen(json_str));
+            // tud_cdc_write_char('\n'); //Not needed anymore
             tud_cdc_write_flush();
             free(json_str);
             state = APP_STATE_SCANNER_MODE;

@@ -5,15 +5,19 @@
 - [x] Read preferences value from nvs 
 - [x] setup HID and CDC interfaces for printing to serial as well
     - Track this issue https://github.com/espressif/esp-idf/issues/13240
+- [ ] Render cards and add global error event listener
+- [ ] Listen for RFID
+
+### Future
+- [ ] Reach feature parity with arduino version
+- [ ] Fix build-workflow to stop erroring
+
+### Not doing
 - [ ] Send and recieve HID data from rfid reader
     - https://github.com/hathach/tinyusb/blob/master/examples/device/hid_composite/src/main.c#L111
     - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
     - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
     - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
-
-### Future
-- [ ] Reach feature parity with arduino version
-- [ ] Fix build-workflow to stop erroring
 
 ## Learns
 - Run `idf.py partition-table` to get the partition table deets

@@ -24,6 +24,7 @@ hidapi = "2.6.1"
 hex = "0.4.3"
 csv = "1.2.1"
 anyhow = "1.0.72"
+futures = "0.3.30"
 
 [features]
 # by default Tauri runs in production mode
@@ -32,3 +33,4 @@ default = ["custom-protocol"]
 # this feature is used for production builds where `devPath` points to the filesystem
 # DO NOT remove this
 custom-protocol = ["tauri/custom-protocol"]
+test-sync = []

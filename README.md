@@ -22,7 +22,7 @@ This project was limited by scarce parts and limited ESP32 documentation, findin
 ### Wrong Boot Mode on ESP32
 ![](./public/readme/bootmode.png)
 
-This error requires the user to hold down the boot button. The fix is to install a 10uF capacitor between EN and ground on your hardware configuration. (This is a bypass cap therefore needs to be placed positive lead at en)
+This error requires the user to hold down the boot button. The fix is to install a 10uF capacitor between EN and ground on your hardware configuration. (This is a bypass cap therefore needs to be placed positive lead at en). Another option is while holding the EN button, connect the USB cable. Hold it down for longer before connecting if still doesnt work.
 
 This seems to only have been encountered on my laptop regardless of if its running windows, or manjaro linux. This was tested with an esp32-wroom and an esp32s2 mini.
 

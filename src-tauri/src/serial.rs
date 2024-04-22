@@ -1,10 +1,11 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::{
     io,
     sync::{atomic::AtomicBool, Arc},
+    thread,
     time::SystemTime,
 };
 use tauri::{async_runtime::Receiver, AppHandle, Manager};
@@ -19,17 +20,25 @@ pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::
     Ok(res)
 }
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(500);
+
+#[cfg(feature = "test-sync")]
+// 5 seconds after starting the thread will die
+const TEST_TIMOUT: Duration = Duration::from_secs(5);
 
 pub fn serial_comms_loop(
     app: AppHandle,
     kill_signal: Arc<AtomicBool>,
     mut port: Box<dyn SerialPort>,
     mut request_handler: Receiver<SerialThreadRequest>,
+    // Callback to run when the thread dies, may need to be async
+    kill_callback: impl FnOnce() -> Result<()>,
 ) -> anyhow::Result<()> {
     // app.emit_to(label, event, payload)
     println!("Listening on port {:?}", port.name());
+    let start = SystemTime::now();
 
+    // thread::sleep(duration::Duration::from_secs(2));
     loop {
         let mut serial_buf: Vec<u8> = Vec::new();
         let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
@@ -40,10 +49,20 @@ pub fn serial_comms_loop(
                 return Ok(());
             }
 
+            #[cfg(feature = "test-sync")]
+            if (start.elapsed().unwrap() > TEST_TIMOUT) {
+                println!("Test timeout reached, killing thread");
+                kill_callback()?;
+                return Ok(());
+            }
+
             // Check if we have a request from the main thread
             if let Ok(request) = request_handler.try_recv() {
                 // Try and send the request to the dongle, conver the payload into bytes
-                serde_json::to_writer(&mut port, &request.payload)?;
+                // serde_json::to_writer(&mut port, &request.payload).unwrap();
+                let send = serde_json::to_string(&request.payload).unwrap();
+                println!("Sending to serial {}", send);
+                port.write_all(send.as_bytes());
 
                 // If the request doesnt wait for a response, set to None
                 if (request.payload.has_response()) {
@@ -54,7 +73,6 @@ pub fn serial_comms_loop(
             // Check the current request isnt stale in timeouts
             if let Some((_, time)) = current_request {
                 // dbg!(time.elapsed().unwrap());
-                // println!("in loop");
                 if time.elapsed().unwrap() > REQUEST_TIMEOUT {
                     if let Some((request, _)) = current_request {
                         dbg!(&request);
@@ -69,29 +87,23 @@ pub fn serial_comms_loop(
                 }
             }
 
+            // println!("in loop");
 
-            //Investigate
-            // serde_json::from_reader(port)
-
-            // This is an array of size 1
-            let mut byte = [0; 1];
-            // TODO: dont unwrap here, this likely means the device may have been disconnected
-            if port.bytes_to_read().unwrap() > 0 {
-                let port_val = port.read(&mut byte);
-                match port_val {
-                    Ok(_) => {
-                        if byte[0] == b'\n' {
-                            break;
-                        }
-                        if byte[0] != 0 {
-                            serial_buf.push(byte[0]);
-                        }
+            match (port.bytes_to_read()) {
+                Ok(bytes_count) => {
+                    if bytes_count > 0 {
+                        port.read_to_end(&mut serial_buf);
+                        break;
                     }
-                    Err(err) => {
-                        println!("Failed to read from port{}", err);
-                        app.emit_all("error", &err.to_string())?;
-                        anyhow::bail!(err);
-                    }
+                }
+                Err(err) => {
+                    println!("Failed to read from port: {}", err);
+                    let err = KeyDotErrors::NoPortConnection {
+                        error: err.to_string(),
+                    };
+                    app.emit_all("error", &err)?;
+                    kill_callback()?;
+                    bail!("Failed to read from port: {:?}", err);
                 }
             }
         }
@@ -134,6 +146,7 @@ pub fn serial_comms_loop(
                 // bail!("Fuck");
             }
         }
+        serial_buf.clear();
     }
 }
 
@@ -238,9 +251,13 @@ pub fn read_rfid_old(
 
 #[cfg(test)]
 mod tests {
+    use std::io::repeat;
+
     use serde::{Deserialize, Serialize};
 
-    use crate::DongleRequest;
+    use crate::{Card, DongleRequest};
+
+    use super::get_port_instance;
 
     #[test]
     fn print_env_vars() {
@@ -326,4 +343,50 @@ mod tests {
         let err: () =
             Result::Err("wasspoppin".to_string()).unwrap_or_else(|e| eprintln!("fugg: {}", e));
     }
+    #[test]
+    fn test_port_cdc() {
+        let port_path = "/dev/ttyACM0";
+        let mut port = get_port_instance(port_path).unwrap();
+        let card = Card {
+            name: String::from("VeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameString"),
+            password: String::from("VeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordString"),
+            rfid: String::from("VeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidString"),
+        };
+        let req = DongleRequest::NewCard(card);
+
+        let send = serde_json::to_string(&req).unwrap();
+        port.write_all(send.as_bytes());
+    }
+
+    #[test]
+    fn thread_join_test() {
+        let handle = std::thread::spawn(|| {
+            println!("Hello from thread first");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+
+            println!("Hello from thread second");
+        });
+        // This proves we dont *need* to join a thread, the resources will be cleaned up by return
+        // Not a feature of RAII but just dont need to call join
+        // handle.join().unwrap();
+
+        println!("Hello from main");
+
+        std::thread::sleep(std::time::Duration::from_secs(4));
+
+        println!("Hello from main last");
+    }
+
+    // fn mutex_test() {
+    //     use std::sync::{Arc};
+    //     use tokio::sync::Mutex;
+    //     let data = Arc::new(Mutex::new(0));
+    //     let data_clone = data.clone();
+    //     let handle = std::thread::spawn(move || {
+    //         let mut data = data_clone.lock().unwrap();
+    //         *data += 1;
+    //     });
+    //     handle.join().unwrap();
+    //     println!("{:?}", data);
+    // }
 }

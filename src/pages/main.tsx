@@ -78,7 +78,7 @@ function App() {
             <code
               onClick={() => {
                 setSelectedPort(null);
-                router.push('/ports');
+                router.push('/');
               }}
               className='cursor-pointer transition duration-300 hover:scale-105 bg-[#8F95A0] p-3 rounded-lg'>
               <strong>Port Selected: </strong>{selectedPort}

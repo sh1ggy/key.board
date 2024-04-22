@@ -4,7 +4,7 @@ idf_component_register(
     # This is very important to build with nvs support
     # as shown here you dont need to add this to `components` in root cmake if this is here
     # https://docs.espressif.com/projects/esp-idf/en/v5.2/esp32s2/api-guides/build-system.html#optional-project-variables
-    PRIV_REQUIRES driver nvs_flash esp-idf-rc522 json
+    PRIV_REQUIRES driver nvs_flash esp-idf-rc522 json esp_timer
     )
 
     # Create a NVS image from the contents of the `nvs_data` CSV file

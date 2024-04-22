@@ -6,11 +6,14 @@
 mod serial;
 use anyhow::{anyhow, bail};
 use core::time;
-use std::error::Error;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serial::get_port_instance;
+use std::error::Error;
+use std::ops::Deref;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use tauri::async_runtime::spawn_blocking;
 use tauri::{
     api::process::{Command, CommandEvent},
     async_runtime::{channel, Receiver, Sender},
@@ -74,7 +77,7 @@ enum DongleResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PasswordLessCard {
-    description: String,
+    name: String,
     rfid: u64,
 }
 
@@ -92,18 +95,19 @@ struct RFID {
 #[serde(tag = "type")]
 enum KeyDotErrors {
     CouldNotOpenPort { error: String },
-    CouldNotReadPort,
-    CouldNotWritePort,
+    NoPortConnection { error: String },
     CouldNotStopSerialThread { error: String },
-    CouldNotReadPortBytes,
     UndigestableJson { error: String, json: String },
+    ServerError { error: String },
 }
+
+type ReaderThreadLock = Arc<RwLock<Option<SerialThreadInstance>>>;
 
 // You can have multiple states in tauri app, check https://github.com/tauri-apps/tauri/blob/dev/examples/state/main.rs
 //State is just a wrapper on Arc, so you need to use Mutexes ursefl, it allows this to imeplement DerefMut
 struct ReaderThreadState {
     // Rwlock (tokio) or Mutex(std) can be used here since they implement Send+Sync
-    reader_thread: RwLock<Option<SerialThreadInstance>>,
+    reader_thread: ReaderThreadLock,
     // Sending this to another thread hence the Arc
     kill_signal: Arc<AtomicBool>,
 }
@@ -282,7 +286,7 @@ async fn get_current_working_dir() -> Result<String, String> {
 fn kill_old_server_thread(
     maybe_old_thread: &mut Option<SerialThreadInstance>,
     // Techinically the atomic bool here is mutable because the reference to the arc is just a reference to heap
-    killer: &Arc<AtomicBool>,
+    killer: Arc<AtomicBool>,
 ) -> anyhow::Result<bool> {
     // Take grabs the value from Option, leaving a none in its place, we need the value in order to actually run join
     match maybe_old_thread.take() {
@@ -296,7 +300,6 @@ fn kill_old_server_thread(
                 // // The map here propogates the result string if its err, but exports an Ok(true) if not
                 .map(|_| true)
         }
-
         None => Ok(false),
     }
 }
@@ -308,9 +311,10 @@ async fn start_listen_server(
     mut state: State<'_, ReaderThreadState>,
     port: String,
 ) -> Result<(), KeyDotErrors> {
+    println!("Killing old thread if it exists");
     let mut maybe_old_thread = state.reader_thread.write().await;
 
-    let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal);
+    let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, state.kill_signal.clone());
     println!("{:?}", old_kill_res);
 
     // Using release here to ensure syncronisation of the CPU cache on store so that it gets commited to all threads,
@@ -327,8 +331,20 @@ async fn start_listen_server(
     let kil_signal_clone = state.kill_signal.clone();
     let (sender, receiver) = channel(32);
 
-    let thread_handle =
-        thread::spawn(move || serial::serial_comms_loop(app, kil_signal_clone, port, receiver));
+    let rw_lock_clone = state.reader_thread.clone();
+    let killer_clone = state.kill_signal.clone();
+
+    let kill_callback = move || {
+        // Ok so this blocking call should be fine since the kill callback is likely to return anyway, FnOnce guarantees that too
+        let mut maybe_old_thread = rw_lock_clone.blocking_write();
+        // Cant join from the thread itself, dont need to call kill_old_thread, besides that makes no sense
+        *maybe_old_thread = None;
+        anyhow::Ok(())
+    };
+
+    let thread_handle = thread::spawn(move || {
+        serial::serial_comms_loop(app, kil_signal_clone, port, receiver, kill_callback)
+    });
 
     *maybe_old_thread = Some(SerialThreadInstance {
         thread: thread_handle,
@@ -342,11 +358,32 @@ async fn start_listen_server(
 }
 
 #[tauri::command]
-async fn get_cards_db(
-    window: tauri::Window,
-    state: tauri::State<'_, ReaderThreadState>,
-) -> Result<PasswordDescriptions, String> {
-    let state = state.reader_thread.read().await;
+async fn test_sync_loop(mut state: tauri::State<'_, ReaderThreadState>) -> Result<String, String> {
+    // Assume listen server is on
+    #[cfg(feature = "test-sync")]
+    {
+        // Make multiple concurrent requests to get_cards_db
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let state_clone = state.reader_thread.clone();
+            let handle = tauri::async_runtime::spawn(async move {
+                let cards = test_send_queries(state_clone).await;
+                println!("{:?}", cards);
+            });
+            handles.push(handle);
+        }
+        // Wait for all the handles to finish
+        join_all(handles).await;
+
+        // Other thread should try and kill itself
+    }
+
+    Ok("Hey".to_owned())
+}
+
+#[cfg(feature = "test-sync")]
+async fn test_send_queries(reader_thread: ReaderThreadLock) {
+    let state = reader_thread.read().await;
     if let Some(state) = &*state {
         let (ret_tx, ret_rx) = oneshot::channel();
         let request = SerialThreadRequest {
@@ -355,35 +392,48 @@ async fn get_cards_db(
         };
         let serial_sender = &state.sender;
         serial_sender.send(request).await.unwrap();
+    }
+}
 
-        let response = ret_rx.await.unwrap().map_err(|e| e.to_string())?;
+#[tauri::command]
+async fn get_cards_db(
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<PasswordDescriptions, String> {
+    println!("Getting cards");
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+    if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::GetPasswordDescriptionsAndSwitchReader,
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
         if let DongleResponse::SendPasswordDescriptions(password_descs) = response {
             Ok(password_descs)
-        }
-        else {
+        } else {
             Err("Did not get password payload".to_owned())
         }
     } else {
         Err("Could not get sender".to_owned())
     }
-
-    // //  Send serial message to get cards
-    // tauri::async_runtime::spawn(async move {
-    //     // A loop that takes output from the async process and sends it
-    //     // to the webview via a Tauri Event
-    //     loop {
-    //         if let Some(output) = async_proc_output_rx.recv().await {
-    //             rs2js(output, &app_handle);
-    //         }
-    //     }
-    // });
 }
 
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]
 async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, KeyDotErrors> {
     let mut maybe_old_thread = state.reader_thread.write().await;
-    kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal).map_err(|e| {
+    kill_old_server_thread(&mut maybe_old_thread, state.kill_signal.clone()).map_err(|e| {
         KeyDotErrors::CouldNotStopSerialThread {
             error: e.to_string(),
         }
@@ -408,11 +458,12 @@ fn main() {
             test,
             get_current_working_dir,
             stop_listen_server,
-            get_cards_db
+            get_cards_db,
+            test_sync_loop
         ])
         // .setup(|app| setup(app))
         .manage(ReaderThreadState {
-            reader_thread: RwLock::new(None),
+            reader_thread: Arc::new(RwLock::new(None)),
             kill_signal: Arc::new(AtomicBool::new(true)),
         })
         .run(tauri::generate_context!())

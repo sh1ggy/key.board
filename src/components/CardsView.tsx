@@ -1,6 +1,6 @@
 import { useToast } from "@/hooks/useToast";
 import { Card } from "@/pages/main";
-import { LoadedCardsContext, NewCardsContext } from "@/pages/_app";
+import { CardsContext, NewCardsContext } from "@/pages/_app";
 import { reflashPartition } from "@/lib/services";
 import { useRouter } from "next/router";
 import { useContext } from "react";

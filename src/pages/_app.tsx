@@ -3,10 +3,10 @@ import GlobalToastProvider from '@/components/GlobalToastProvider';
 import GlobalErrorProvider from '@/components/GlobalErrorProvider';
 import { useRouter } from 'next/navigation';
 import type { AppProps } from 'next/app'
-import { Card } from './main';
 import Head from 'next/head';
 import '@/styles/globals.css'
 import '@/styles/xterm.css'
+import { PasswordLessCard } from '@/lib/models';
 
 
 // const CARDS_SEED: Card[] = [{
@@ -24,19 +24,16 @@ export enum DongleState {
 // @ts-ignore
 export const PortContext = React.createContext<[string | null, React.Dispatch<React.SetStateAction<string | null>>]>(null);
 // @ts-ignore
-export const LoadedCardsContext = React.createContext<[Card[], React.Dispatch<React.SetStateAction<Card[]>>]>(null);
-// @ts-ignore
-export const NewCardsContext = React.createContext<[Card[], React.Dispatch<React.SetStateAction<Card[]>>]>(null);
+export const CardsContext = React.createContext<[PasswordLessCard[], React.Dispatch<React.SetStateAction<PasswordLessCard[]>>]>(null);
 // @ts-ignore
 export const DongleStateContext = React.createContext<[DongleState, React.Dispatch<React.SetStateAction<DongleState>>]>(null);
 
-const initialDongleState = DongleState.CardReader;
+const initialDongleState = DongleState.Master;
 
 export default function App({ Component, pageProps }: AppProps) {
   const portState = useState<string | null>(null);
   const binaryState = useState<DongleState>(initialDongleState);
-  const cardsState = useState<Card[]>([]);
-  const newCardsState = useState<Card[]>([]);
+  const cardsState = useState<PasswordLessCard[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -48,16 +45,14 @@ export default function App({ Component, pageProps }: AppProps) {
     <GlobalToastProvider>
       <GlobalErrorProvider>
         <PortContext.Provider value={portState}>
-          <LoadedCardsContext.Provider value={cardsState}>
-            <NewCardsContext.Provider value={newCardsState}>
+          <CardsContext.Provider value={cardsState}>
               <DongleStateContext.Provider value={binaryState}>
                 <Head>
                   <script src="http://localhost:8097"></script>
                 </Head>
                 <Component {...pageProps} />
               </DongleStateContext.Provider>
-            </NewCardsContext.Provider>
-          </LoadedCardsContext.Provider>
+          </CardsContext.Provider>
         </PortContext.Provider>
       </GlobalErrorProvider>
     </GlobalToastProvider>

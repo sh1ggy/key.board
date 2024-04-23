@@ -1,13 +1,13 @@
 import { useToast } from "@/hooks/useToast";
 import { arraysEqual } from "@/lib/utils";
-import { LoadedCardsContext, NewCardsContext } from "@/pages/_app";
+import { CardsContext, NewCardsContext } from "@/pages/_app";
 import sync from "@/pages/sync"
 import router from "next/router"
 import { useContext, useMemo } from "react";
 
 
 export function Navbar() {
-	const [cards, setCards] = useContext(LoadedCardsContext);
+	const [cards, setCards] = useContext(CardsContext);
 	const [newCards, setNewCards] = useContext(NewCardsContext);
 	const sync = useMemo(() => {
 		return !arraysEqual(newCards, cards);

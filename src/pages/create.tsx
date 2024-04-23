@@ -3,7 +3,6 @@ import { Navbar } from "@/components/Navbar";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/useToast";
-import { Card } from "./main";
 import { reflashPartition } from "@/lib/services";
 import { DongleStateContext, DongleState, NewCardsContext, PortContext } from "./_app";
 import CommandTerminal from "@/components/CommandTerminal";
@@ -23,7 +22,6 @@ export default function CreateCard() {
 	const [name, setName] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
-	const [newCards, setNewCards] = useContext(NewCardsContext);
 	const [isLoading, setIsLoading] = useState(false);
 
 	const loadingBinaryCommand = useRef<Command | null>(null);
@@ -42,7 +40,6 @@ export default function CreateCard() {
 		// Check here if the binary has already been loaded, start up the server
 		if (currBin == DongleState.CardReader) {
 			const invoke = (await import('@tauri-apps/api')).invoke;
-			const listen = (await import('@tauri-apps/api')).event.listen;
 
 			const listenServer = await invoke('start_listen_server', { "port": selectedPort });
 			console.log({ listenServer });

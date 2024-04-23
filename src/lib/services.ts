@@ -1,8 +1,10 @@
 'use client';
 // TODO: organize imports to interfaces (likely make a Card component (Model View Controller pattern))
 // import { path, tauri, os } from "@tauri-apps/api";
-import type { path as PathType} from '@tauri-apps/api';
+import type { path as PathType } from '@tauri-apps/api';
 import type { invoke as InvokeType } from '@tauri-apps/api/tauri'
+import type { listen as ListenType } from '@tauri-apps/api/event'
+import { PasswordLessCard } from './models';
 
 export const reflashPartition = async (): Promise<Boolean> => {
   // TODO: await command send
@@ -27,10 +29,13 @@ export const reflashPartition = async (): Promise<Boolean> => {
 // Saving the function here makes it reusable across files too
 let invoke: typeof InvokeType;
 let path: typeof PathType;
+let listen: typeof ListenType;
 export const startImports = async () => {
   invoke = (await import('@tauri-apps/api')).tauri.invoke;
   path = (await import('@tauri-apps/api')).path;
+  listen = (await import('@tauri-apps/api')).event.listen;
 }
+
 
 export const startlistenServer = async (portOption: string) => {
   const listenServer = await invoke('start_listen_server', { "port": portOption });
@@ -51,8 +56,7 @@ export const getCurrentWorkingDir = async () => {
 }
 
 export const getCardsDb = async () => {
-
-  return await invoke<string>('get_cards_db');
+  return await invoke<PasswordLessCard[]>('get_cards_db');
 }
 
 export const getEspBinDir = async () => {
@@ -62,8 +66,8 @@ export const getEspBinDir = async () => {
 
   const workingDir = await getCurrentWorkingDir();
   const espBin = await path.join(workingDir, 'esptool');
-  console.log({workingDir, espBin});
-  
+  console.log({ workingDir, espBin });
+
   return espBin;
 
 }

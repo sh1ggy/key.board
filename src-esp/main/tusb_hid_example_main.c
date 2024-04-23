@@ -297,6 +297,7 @@ void handle_request(cJSON *root)
 
     ESP_LOGI(TAG, "request_type=%s", request_type);
 
+    //Should be able to do this regardless of what state we are in 
     if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_GET_PASSWORD_DESCS]) == 0)
     {
         state = APP_STATE_SEND_PASSWORD_DB;

@@ -7,6 +7,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // This does nothing for changing the live build 
+  output: 'export'
 }
 
 module.exports = nextConfig

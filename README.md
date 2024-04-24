@@ -73,3 +73,14 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 ## References
 - [**Inspiration**](https://github.com/Jaycar-Electronics/RFID-Computer-Login)
 - Icons from [**SVG REPO**](https://www.svgrepo.com/)
+
+## TODO
+- [ ] Rewrite create to be the only screen that subscribes to the rfid alert
+- [ ] Send Newcard struct
+- [ ] Save and quit button on main 
+- [ ] error handling to handle disconnect
+
+
+- [ ] rewrite load binary to function as a way to load the first time binary.
+	- [ ] Add port selection
+	- [ ] Load binary

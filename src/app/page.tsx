@@ -1,7 +1,6 @@
 'use client';
 import { useContext, useEffect, useRef, useState } from "react";
 import { getCardsDb, getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, stoplistenServer, test, testSyncLoop } from "@/lib/services";
-import { DongleStateContext, DongleState, CardsContext, PortContext } from "./_app";
 import { useToast } from '@/hooks/useToast';
 import { useRouter } from 'next/navigation';
 import React from "react";
@@ -9,20 +8,9 @@ import CommandTerminal from "@/components/CommandTerminal";
 import type { Command } from '@tauri-apps/api/shell';
 import { useError } from "@/hooks/useError";
 import { truncateString } from "@/lib/utils";
-// import { invoke } from "@tauri-apps/api";
+import { CardsContext, DongleState, DongleStateContext, PortContext } from "./providers";
+import { invoke } from "@tauri-apps/api";
 
-type InternalValTypes =
-	"STR" |
-	"U32" |
-	"BLOB";
-
-
-type InternalVal = {
-	type: InternalValTypes,
-	value: string
-}
-
-type DbType = Record<string, Record<string, InternalVal> & { num_cards: { type: "U32", value: string }, uids: { type: "BLOB", value: string } }>;
 
 
 export default function PortSelection() {
@@ -38,10 +26,7 @@ export default function PortSelection() {
 
 	useEffect(() => {
 		const init = async () => {
-			await startImports();
-
-			// console.log(await invoke<string[]>('get_ports'));
-			const recvPorts = await getPorts();
+			const recvPorts = await invoke<string[]>('get_ports');;
 			setPorts(recvPorts);
 			if (recvPorts.length != 0)
 				setSelectedPort(recvPorts[0]);

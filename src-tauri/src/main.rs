@@ -24,10 +24,9 @@ use tokio::time::timeout;
 
 // Need to implement serde::deserialize trait on this to use in command
 #[derive(Deserialize, Serialize, Debug)]
-struct Card {
+struct NewCard {
     name: String,
     password: String,
-    rfid: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,7 +37,9 @@ enum DongleRequest {
     #[serde(rename = "get_pass_descs")]
     GetPasswordDescriptionsAndSwitchReader,
     BoardSwitchMain,
-    NewCard(Card),
+
+    #[serde(rename = "send_new_card")]
+    NewCard(NewCard),
     ClearPasswords,
 }
 
@@ -46,22 +47,11 @@ impl DongleRequest {
     fn has_response(&self) -> bool {
         match self {
             DongleRequest::GetPasswordDescriptionsAndSwitchReader => true,
+            DongleRequest::NewCard(_) => true,
             _ => false,
         }
     }
-
-    fn is_correct_response(&self, response: &DongleResponse) -> bool {
-        match self {
-            DongleRequest::GetPasswordDescriptionsAndSwitchReader => {
-                if let DongleResponse::SendPasswordDescriptions(_) = response {
-                    true
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
+    
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -73,6 +63,9 @@ enum DongleResponse {
 
     #[serde(rename = "detected_rfid")]
     RFIDDetected(RFID),
+
+    #[serde(rename = "send_new_card")]
+    ConfirmNewCard
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -86,7 +79,7 @@ struct PasswordDescriptions {
     descriptions: Vec<PasswordLessCard>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct RFID {
     rfid: u64,
 }
@@ -190,84 +183,6 @@ async fn test<R: Runtime>(
     Ok((String::new()))
 }
 
-fn save_cards_to_csv(cards: Vec<Card>, config: Arc<Config>) -> Result<String, Box<dyn Error>> {
-    // TODO: Use anyhow to propogate errors in this in a way that doesnt need to make a new function or use a closure
-    let mut path =
-        tauri::api::path::app_local_data_dir(&config).unwrap_or(std::path::PathBuf::from("./temp"));
-    std::fs::create_dir_all(&path)?;
-
-    path.push("to_save.csv");
-    println!("Saving csv at: {:?}", path);
-    let mut wtr = csv::Writer::from_path(&path)?;
-    wtr.write_record(&["key", "type", "encoding", "value"])?;
-    wtr.write_record(&["kb", "namespace", "", ""])?;
-
-    let mut uid_buffer = String::new();
-    let uid_count = cards.len();
-
-    for (i, card) in cards.iter().enumerate() {
-        // println!("card lol: {:?}", card);
-
-        // let mut my_vector: Vec<&str> = Vec::new();
-
-        // my_vector.push(&card.name);
-
-        let key = format!("name{}", i.to_string());
-        let card_name = &card.name;
-        let record = [&key, "data", "string", card_name];
-        wtr.write_record(record)?;
-
-        let key = format!("pass{}", i.to_string());
-        let card_pass = &card.password;
-        let record = [&key, "data", "string", card_pass];
-        wtr.write_record(record)?;
-
-        // let hex_string_trimmed: String = hex_string
-        //     .replace('\0', "")
-        //     .trim()
-        //     .chars()
-        //     .filter(|c| !c.is_whitespace())
-        //     .collect();
-
-        // let maybe_hex = hex::decode(hex_string_trimmed);
-        let new_uid_string = card.rfid.trim().replace(" ", "");
-        uid_buffer.push_str(&new_uid_string);
-    }
-    wtr.write_record(&["uids", "data", "hex2bin", &uid_buffer])?;
-    wtr.write_record(&["num_cards", "data", "u32", &uid_count.to_string()])?;
-
-    match path.to_str() {
-        Some(str) => Ok(str.into()),
-        None => Err(
-            "HEy man, path for path buf could not be computed, prolly not a valid utf-8 string"
-                .into(),
-        ),
-    }
-}
-
-// We cant use this because dyn Error doesnt implement Serialize but string does :)
-// async fn save_card(value: String) -> Result<(), Box<dyn Error>> {
-#[tauri::command]
-async fn save_cards_to_csv_command(
-    app: AppHandle,
-    cards: Vec<Card>,
-    // port: String,
-) -> Result<String, String> {
-    // let confRef = &app.config();
-
-    // Because we are now using the value of path_to_csv, the config reference that has to be passed into save_cards becomes invalid because the return type may use it later
-    let path_to_csv = save_cards_to_csv(cards, app.config());
-
-    // Ok(("Hey".into()))
-    match path_to_csv {
-        Ok(path_to_csv) => Ok(path_to_csv.to_string()),
-        Err(err) => {
-            let err_string = format!("Could not csv: {}", err.to_string());
-            println!("{err_string}");
-            return Err(err_string);
-        }
-    }
-}
 
 #[tauri::command]
 async fn get_current_working_dir() -> Result<String, String> {
@@ -429,6 +344,40 @@ async fn get_cards_db(
     }
 }
 
+#[tauri::command]
+async fn send_new_card(card: NewCard, state: tauri::State<'_, ReaderThreadState>) -> Result<(), String> {
+    println!("Sending card {:?}", card);
+    return Ok(());
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+
+     if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::NewCard(card),
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
+        if let DongleResponse::ConfirmNewCard = response {
+            Ok(())
+        } else {
+            Err("Did not get password payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
+}
+
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]
 async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, KeyDotErrors> {
@@ -452,13 +401,13 @@ fn get_ports() -> Vec<String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            save_cards_to_csv_command,
             get_ports,
             start_listen_server,
             test,
             get_current_working_dir,
             stop_listen_server,
             get_cards_db,
+            send_new_card,
             test_sync_loop
         ])
         // .setup(|app| setup(app))

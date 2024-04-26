@@ -11,18 +11,6 @@ import { useError } from "@/hooks/useError";
 import { truncateString } from "@/lib/utils";
 // import { invoke } from "@tauri-apps/api";
 
-type InternalValTypes =
-	"STR" |
-	"U32" |
-	"BLOB";
-
-
-type InternalVal = {
-	type: InternalValTypes,
-	value: string
-}
-
-type DbType = Record<string, Record<string, InternalVal> & { num_cards: { type: "U32", value: string }, uids: { type: "BLOB", value: string } }>;
 
 
 export default function PortSelection() {
@@ -46,8 +34,10 @@ export default function PortSelection() {
 			if (recvPorts.length != 0)
 				setSelectedPort(recvPorts[0]);
 		}
+		console.log({ cards });
+
 		init();
-		// router.push("/");
+		// router.push("/main");
 	}, [])
 
 	const proceedToCardsScreen = async () => {
@@ -59,7 +49,7 @@ export default function PortSelection() {
 			await startlistenServer(selectedPort);
 			let gottenCards = await getCardsDb();
 			console.log({ gottenCards });
-			setCards(gottenCards);
+			setCards(gottenCards.descriptions);
 		}
 		catch (e: any) {
 			console.error(e);

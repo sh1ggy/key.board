@@ -9,11 +9,10 @@ import '@/styles/xterm.css'
 import { PasswordLessCard } from '@/lib/models';
 
 
-// const CARDS_SEED: Card[] = [{
-//   name: "Test",
-//   password: "passwordle",
-//   rfid: "112233"
-// }];
+const CARDS_SEED: PasswordLessCard[] = [{
+  name: "Test",
+  rfid: "112233"
+}];
 
 export enum DongleState {
   Unknown,
@@ -33,7 +32,7 @@ const initialDongleState = DongleState.Master;
 export default function App({ Component, pageProps }: AppProps) {
   const portState = useState<string | null>(null);
   const binaryState = useState<DongleState>(initialDongleState);
-  const cardsState = useState<PasswordLessCard[]>([]);
+  const cardsState = useState<PasswordLessCard[]>(CARDS_SEED);
   const router = useRouter();
 
   useEffect(() => {

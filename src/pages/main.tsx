@@ -1,7 +1,7 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { use, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation';
 
-import { getPorts, reflashPartition, test } from '@/lib/services'
+import { getPorts, deleteCard, test } from '@/lib/services'
 import { CardsView, CardsViewProps } from '@/components/CardsView'
 import { Navbar } from '@/components/Navbar'
 import { DongleStateContext, CardsContext, PortContext } from './_app'
@@ -15,12 +15,19 @@ interface error {
 }
 
 
-function App() {
+export default function MainPage() {
   const setToast = useToast();
   const router = useRouter();
   const [selectedPort, setSelectedPort] = useContext(PortContext);
   const [cards, setCards] = useContext(CardsContext);
   const [currBin, setCurrentBin] = useContext(DongleStateContext);
+
+  useEffect(() => {
+    const init = async () => {
+
+    };
+
+  }, []);
 
   return (
     <>
@@ -39,17 +46,6 @@ function App() {
               className='cursor-pointer transition duration-300 hover:scale-105 bg-[#8F95A0] p-3 rounded-lg'>
               <strong>Port Selected: </strong>{selectedPort}
             </code>
-            {currBin != DongleState.Master &&
-              <>
-                <button
-                  className="text-gray cursor-pointer transition duration-300 hover:scale-105 text-center p-3 ml-5 focus:ring-4 focus:outline-none focus:ring-green-300 bg-green-600 rounded-lg text-white"
-                  onClick={() => {
-                    router.push('/load-main');
-                  }}>
-                  Load Key Binary
-                </button>
-              </>
-            }
           </div>
           <div className='flex flex-col'>
             <button className="text-gray cursor-pointer transition duration-300 hover:scale-105 ext-center p-3 m-3 bg-[#292828] focus:ring-4 focus:outline-none focus:ring-[#454444] rounded-lg text-white"
@@ -79,4 +75,4 @@ function App() {
   )
 }
 
-export default App
+

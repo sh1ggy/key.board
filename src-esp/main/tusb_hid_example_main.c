@@ -119,6 +119,12 @@ typedef struct
     uint32_t total_rfid_tags;
 } RFID_DB_t;
 
+typedef struct
+{
+    char pass[MAX_PASS_SIZE];
+    char desc[MAX_DESC_SIZE];
+} NEW_CARD_t;
+
 typedef enum
 {
     APP_STATE_BOOT,
@@ -127,24 +133,28 @@ typedef enum
     APP_STATE_APPLY_KEYSTROKES,
     APP_STATE_SEND_PASSWORD_DB,
     APP_STATE_SEND_RFID,
+    APP_STATE_SAVE_NEW_CARD,
     APP_STATE_MAX
 } APP_STATE;
 
 typedef enum
 {
     REQUEST_TYPE_GET_PASSWORD_DESCS,
+    REQUEST_TYPE_NEW_CARD,
     REQUEST_TYPE_MAX
 } REQUEST_TYPE;
 
 static const char *REQUEST_TYPE_STR[REQUEST_TYPE_MAX] =
     {
         [REQUEST_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
+        [REQUEST_TYPE_NEW_CARD] = "send_new_card",
 };
 
 typedef enum
 {
     RESPONSE_TYPE_GET_PASSWORD_DESCS,
     RESPONSE_TYPE_DETECTED_RFID,
+    RESPPONSE_TYPE_NEW_CARD,
     RESPONSE_TYPE_MAX
 
 } RESPONSE_TYPE;
@@ -153,6 +163,7 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
     {
         [RESPONSE_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
         [RESPONSE_TYPE_DETECTED_RFID] = "detected_rfid",
+        [RESPONSE_TYPE_NEW_CARD] = "send_new_card",
 };
 
 #define MAX_PASS_SIZE 50
@@ -166,6 +177,8 @@ APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
 rc522_handle_t scanner;
 RFID_DB_t rfid_db;
+
+NEW_CARD_t current_new_card;
 uint64_t currently_scanned_tag;
 char currently_scanned_pass[MAX_PASS_SIZE];
 
@@ -297,10 +310,26 @@ void handle_request(cJSON *root)
 
     ESP_LOGI(TAG, "request_type=%s", request_type);
 
-    //Should be able to do this regardless of what state we are in 
+    // Should be able to do this regardless of what state we are in
     if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_GET_PASSWORD_DESCS]) == 0)
     {
         state = APP_STATE_SEND_PASSWORD_DB;
+    }
+    else if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_NEW_CARD]) == 0)
+    {
+        cJSON *pass_json = cJSON_GetObjectItem(root, "pass");
+        cJSON *desc_json = cJSON_GetObjectItem(root, "desc");
+
+        if (pass_json == NULL || desc_json == NULL)
+        {
+            ESP_LOGE(TAG, "pass or desc not found in request");
+            return;
+        }
+
+        current_new_card.pass = pass_json->valuestring;
+        current_new_card.desc = desc_json->valuestring;
+
+        state = APP_STATE_SAVE_NEW_CARD;
     }
 }
 
@@ -525,6 +554,23 @@ void app_main(void)
             tud_cdc_write_flush();
             free(json_str);
             state = APP_STATE_SCANNER_MODE;
+            break;
+        }
+
+        case APP_STATE_SAVE_NEW_CARD:
+        {
+            ESP_LOGI(TAG, "Saving new card with desc: %s", current_new_card.desc);
+            int new_total_cards = rfid_db.total_rfid_tags;
+            new_total_cards++;
+
+
+            char tag_key[16];
+            sprintf(tag_key, "tag%zu", new_total_cards);
+
+            esp_err_t err = nvs_set_str(storage_handle, "pass", current_new_card.pass);
+            
+            nvs_set_u32(storage_handle, "num_cards", new_total_cards);
+
             break;
         }
 

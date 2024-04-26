@@ -6,7 +6,7 @@ import type { invoke as InvokeType } from '@tauri-apps/api/tauri'
 import type { listen as ListenType } from '@tauri-apps/api/event'
 import { PasswordLessCard } from './models';
 
-export const reflashPartition = async (): Promise<Boolean> => {
+export const deleteCard = async (): Promise<Boolean> => {
   // TODO: await command send
   try {
     // const thing = await invoke('run_thing');
@@ -55,8 +55,12 @@ export const getCurrentWorkingDir = async () => {
   return await invoke<string>('get_current_working_dir');
 }
 
+interface GetCardsResponse {
+  descriptions: PasswordLessCard[];
+}
+
 export const getCardsDb = async () => {
-  return await invoke<PasswordLessCard[]>('get_cards_db');
+  return await invoke<GetCardsResponse>('get_cards_db');
 }
 
 export const getEspBinDir = async () => {

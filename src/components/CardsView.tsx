@@ -1,20 +1,20 @@
 import { useToast } from "@/hooks/useToast";
-import { Card } from "@/pages/main";
-import { CardsContext, NewCardsContext } from "@/pages/_app";
-import { reflashPartition } from "@/lib/services";
+import { CardsContext} from "@/pages/_app";
+import { deleteCard } from "@/lib/services";
 import { useRouter } from "next/router";
 import { useContext } from "react";
+import { PasswordLessCard } from "@/lib/models";
 
 const deleteIcon = '/delete.svg'
 const editIcon = '/edit.svg'
 
 export interface CardsViewProps {
-	card: Card,
+	card: PasswordLessCard,
 	cardIndex: number,
 }
 
 export function CardsView({ cardIndex, card }: CardsViewProps) {
-	const [cards, setCards] = useContext(NewCardsContext);
+	const [cards, setCards] = useContext(CardsContext);
 	const deleteCard = async (i: number) => {
 		setCards((prev) => {
 			const tempCards = [...prev];
@@ -22,9 +22,10 @@ export function CardsView({ cardIndex, card }: CardsViewProps) {
 			return tempCards;
 		})
 
-		if (await reflashPartition())
-			setToast("Card deleted!");
+		// if (await deleteCard())
+		// 	setToast("Card deleted!");
 	}
+
 	const setToast = useToast();
 	const router = useRouter();
 

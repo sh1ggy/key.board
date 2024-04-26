@@ -3,7 +3,7 @@ use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::{
-    io,
+    default, io,
     sync::{atomic::AtomicBool, Arc},
     thread,
     time::SystemTime,
@@ -20,7 +20,7 @@ pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::
     Ok(res)
 }
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(500);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "test-sync")]
 // 5 seconds after starting the thread will die
@@ -76,7 +76,7 @@ pub fn serial_comms_loop(
                 if time.elapsed().unwrap() > REQUEST_TIMEOUT {
                     if let Some((request, _)) = current_request {
                         dbg!(&request);
-                        eprint!("Request timed out for {:?}", request.payload);
+                        eprintln!("Request timed out for {:?}", request.payload);
                         request
                             .ret
                             .send(Err(anyhow!("Request timed out")))
@@ -117,19 +117,19 @@ pub fn serial_comms_loop(
                 // let request: DongleRequest = serde_json::from_slice(&serial_buf)?;
                 println!("WORKING!!!: {:?}", &response);
                 if let Some((request, _)) = current_request {
-                    if (request.payload.is_correct_response(&response)) {
-                        request
-                            .ret
-                            .send(Ok(response))
-                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
-                    } else {
-                        request
-                            .ret
-                            .send(Err(anyhow!("Incorrect response")))
-                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
-                    }
+                    request
+                        .ret
+                        .send(Ok(response))
+                        .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
                 } else {
-                    app.emit_all("dongle_response", &response)?;
+                    match response {
+                        DongleResponse::RFIDDetected(rfid) => {
+                            app.emit_all("rfid", rfid)?;
+                        }
+                        default => {
+                            app.emit_all("dongle_response", &default)?;
+                        }
+                    }
                 }
             }
             Err(err) => {
@@ -150,112 +150,13 @@ pub fn serial_comms_loop(
     }
 }
 
-// For now string is fine, otherwise use, Result<(), Box<dyn std::error::Error>> or anyhow OR use this:
-// #[derive(Debug)]
-// enum ThreadError {
-//     FileError(io::Error),
-//     PortError(io::Error),
-// }
-// fn thread_function() -> Result<(), ThreadError> {
-
-pub fn read_rfid_old(
-    app: AppHandle,
-    kill_signal: Arc<AtomicBool>,
-    port_path: String,
-) -> Result<(), String> {
-    // pub fn read_rfid() {
-    // let app = process::app_handle().expect("failed to get app handle");
-    // const PORT_PATH: &str = "COM4";
-    const BAUD_RATE: u32 = 115_200;
-    let port = serialport::new(&port_path, BAUD_RATE)
-        .timeout(Duration::from_millis(10))
-        .open();
-    // On drop of port, it automatically cleans up for you
-    // .unwrap();
-
-    match port {
-        Ok(mut port) => {
-            println!("Receiving data on {} at {} baud:", &port_path, &BAUD_RATE);
-
-            loop {
-                let mut serial_buf: Vec<u8> = Vec::new();
-                loop {
-                    if kill_signal.load(std::sync::atomic::Ordering::SeqCst) {
-                        println!("Kill signal recieved, killing thread");
-                        return Ok(());
-                    }
-                    // This is an array of size 1
-                    let mut byte = [0; 1];
-                    // TODO: dont unwrap here, this likely means the device may have been disconnected
-                    if port.bytes_to_read().unwrap() > 0 {
-                        let port_val = port.read(&mut byte);
-                        match port_val {
-                            Ok(_) => {
-                                if byte[0] == b'\n' {
-                                    break;
-                                }
-                                if byte[0] != 0 {
-                                    serial_buf.push(byte[0]);
-                                }
-                            }
-                            Err(err) => {
-                                println!("Failed to read from port{}", err);
-                                return Err(err.to_string());
-                            }
-                        }
-                    }
-                }
-
-                // The above method reads single byte by byte from serial, possible to also read whole serial buffer and split on newlines
-                // This proves the string we get is not immediately equal to the hex equivilant
-                // println!("Testing !!!: {}", hex::encode(&serial_buf));
-                println!("Testing !!!: {:?}", serial_buf);
-
-                let maybe_hex_string = String::from_utf8(serial_buf.clone());
-                if let Ok(hex_string) = maybe_hex_string {
-                    println!("Got string {}", hex_string);
-                    let hex_string_trimmed: String = hex_string
-                        .replace('\0', "")
-                        .trim()
-                        .chars()
-                        .filter(|c| !c.is_whitespace())
-                        .collect();
-                    let maybe_hex = hex::decode(&hex_string_trimmed);
-                    match maybe_hex {
-                        Ok(hex_value) => {
-                            let back_to_string = hex::encode(&hex_value);
-                            let emit_res = app.emit_all("rfid", &back_to_string);
-                            if let (Err(emit_err)) = emit_res {
-                                eprintln!(
-                                    "Could not emit: {} with error: {}",
-                                    &back_to_string,
-                                    emit_err.to_string()
-                                );
-                            }
-                            println!("WORKING!!!: {}", &back_to_string)
-                        }
-                        Err(err) => println!("Unreadable Hex {}: {}", &hex_string_trimmed, err),
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            // Emit error to client
-            eprintln!("Failed to open \"{}\". Error: {}", port_path, e);
-            // Doing this is the same as using the ? error chaining operator on the port value, were just handling the matches ourselves
-            Err(e.to_string())
-            // ::std::process::exit(1);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::repeat;
 
     use serde::{Deserialize, Serialize};
 
-    use crate::{Card, DongleRequest};
+    use crate::{NewCard, DongleRequest};
 
     use super::get_port_instance;
 
@@ -347,10 +248,9 @@ mod tests {
     fn test_port_cdc() {
         let port_path = "/dev/ttyACM0";
         let mut port = get_port_instance(port_path).unwrap();
-        let card = Card {
+        let card = NewCard {
             name: String::from("VeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameStringVeryLongNameString"),
             password: String::from("VeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordStringVeryLongPasswordString"),
-            rfid: String::from("VeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidStringVeryLongRfidString"),
         };
         let req = DongleRequest::NewCard(card);
 

@@ -3,8 +3,8 @@ import { Navbar } from "@/components/Navbar";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/useToast";
-import { reflashPartition } from "@/lib/services";
-import { DongleStateContext, DongleState, NewCardsContext, PortContext } from "./_app";
+import { deleteCard } from "@/lib/services";
+import { DongleStateContext, DongleState, PortContext, CardsContext } from "./_app";
 import CommandTerminal from "@/components/CommandTerminal";
 import { Command } from "@tauri-apps/api/shell";
 import { useError } from "@/hooks/useError";
@@ -15,6 +15,15 @@ import { sleep } from "@/lib/utils";
 const eyeOffIcon = '/eyeOff.svg'
 const eyeOnIcon = '/eyeOn.svg'
 
+interface NewCard {
+	name: string;
+	password: string;
+}
+
+interface RFIDEvent {
+	rfid: string;
+}
+
 export default function CreateCard() {
 	const setToast = useToast();
 	const setError = useError();
@@ -23,10 +32,7 @@ export default function CreateCard() {
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-
-	const loadingBinaryCommand = useRef<Command | null>(null);
-	// This is responsible for tracking that the command is actually running a command as opposed to loading 
-	const [isRunningCommand, setRunningCommand] = useState<boolean>(false);
+	const [cards, setCards] = useContext(CardsContext);
 
 	const [rfid, setRfid] = useState<string>("");
 	const [serverRfid, setServerRfid] = useState<string>("");
@@ -34,29 +40,30 @@ export default function CreateCard() {
 	const router = useRouter();
 	const [selectedPort, setSelectedPort] = useContext(PortContext);
 	const rfidEventUnlisten = useRef<UnlistenFn | null>(null);
-	const [currBin, setCurrentBin] = useContext(DongleStateContext);
+	const [currBin, _] = useContext(DongleStateContext);
 
 	const init = async () => {
 		// Check here if the binary has already been loaded, start up the server
+		console.log(currBin);
+
 		if (currBin == DongleState.CardReader) {
-			const invoke = (await import('@tauri-apps/api')).invoke;
+			const listen = (await import('@tauri-apps/api')).event.listen;
+			console.log("Listening for RFID events");
 
-			const listenServer = await invoke('start_listen_server', { "port": selectedPort });
-			console.log({ listenServer });
-
-			rfidEventUnlisten.current = await listen<string>("rfid", (e) => {
+			rfidEventUnlisten.current = await listen<RFIDEvent>("rfid", (e) => {
 				console.log(e.payload);
-				setServerRfid(e.payload);
+				setServerRfid(e.payload.rfid);
 			})
+		}
+		else {
+			// router.push("/");
 		}
 	}
 
+
 	const unMount = async () => {
-		const invoke = (await import('@tauri-apps/api')).invoke;
 		if (rfidEventUnlisten.current)
 			rfidEventUnlisten.current();
-		const stopServerRes = await invoke('stop_listen_server');
-		console.log({ stopServerRes });
 	}
 
 	useEffect(() => {
@@ -66,6 +73,7 @@ export default function CreateCard() {
 		}
 	}, []);
 
+	//Were gonna use this as opposed to regenerating the callback cuz idk how to do that its been 5 years facebook please
 	useEffect(() => {
 		// New rfid detected
 		if (serverRfid != rfid) {
@@ -88,14 +96,13 @@ export default function CreateCard() {
 			return
 		};
 
-		const newCard: Card = {
+		const newCard: NewCard = {
 			name,
 			password,
-			rfid,
 		}
-		
+
 		let exitEarly = false;
-		setNewCards((prev) => {
+		setCards((prev) => {
 			for (const card of prev) {
 				if (name === card.name) {
 					console.log("dupe");
@@ -104,100 +111,40 @@ export default function CreateCard() {
 					return prev;
 				}
 			}
-			const tempCards = [...prev, newCard];
+			const tempCards = [...prev, { name, rfid }];
 			return tempCards;
 		});
 
 		if (exitEarly) return;
 
-		setToast("Card created!");
-		router.push("/");
+		//Send the newCard to the server
+		try {
+			const invoke = (await import('@tauri-apps/api')).invoke;
+			const resp = await invoke('send_new_card', { card: newCard });
 
-	}
+			setToast("Card created!");
+			router.push("/main");
 
-	const onLoadReaderBin = async () => {
-		// LOAD CARD READER BINARY HERE
-		setIsLoading(true); // disabling all input
-
-		const Command = (await import('@tauri-apps/api/shell')).Command;
-		const invoke = (await import('@tauri-apps/api')).invoke;
-		const listen = (await import('@tauri-apps/api')).event.listen;
-		const path = (await import('@tauri-apps/api')).path;
-		const stopServerRes = await invoke('stop_listen_server');
-		console.log({ stopServerRes });
-
-
-		const bootLoaderPath = await path.resolveResource("bin/arduino-bins/boot_app0.bin");
-		const bootLoaderQioPath = await path.resolveResource("bin/arduino-bins/bootloader_qio_80m.bin");
-		const rfidPath = await path.resolveResource("bin/arduino-bins/read_rfid.ino.bin");
-		const rfidPartitionPath = await path.resolveResource("bin/arduino-bins/read_rfid.ino.partitions.bin");
-
-		// const file = await path.resolveResource("bin/arduino-bins/binariesSource.txt");
-		// const resourceDirPath = await path.resourceDir();
-		// console.log({binResourcePath, fake, resourceDirPath});
-		// console.log("thing", await window.__TAURI__.fs.readTextFile(file));
-
-		// Resources are loaded in a path that is referenced in the same way it is stated in resources. eg. debug/bin/arduino-bins/bin
-		loadingBinaryCommand.current = Command.sidecar("bin/dist/esptool", [
-			`--chip`,
-			`esp32`,
-			`--port`,
-			selectedPort!,
-			`--baud`,
-			`921600`,
-			`--before`,
-			`default_reset`,
-			`--after`,
-			`hard_reset`,
-			`write_flash`,
-			`-z`,
-			`--flash_mode`,
-			`dio`,
-			`--flash_freq`,
-			`80m`,
-			`--flash_size`,
-			`detect`,
-			`0xe000`,
-			`${bootLoaderPath}`,
-			`0x1000`,
-			bootLoaderQioPath,
-			`0x10000`,
-			rfidPath,
-			`0x8000`,
-			rfidPartitionPath
-		]);
-		setRunningCommand(true);
-		const res = await loadingBinaryCommand.current.execute();
-		if (res.stdout.includes("the port doesn't exist")) {
-			setError(`The port ${selectedPort} isn't available or is already in use by another process`);
-			setRunningCommand(false);
-			setIsLoading(false);
-			return;
 		}
-		console.log({ res });
-		setCurrentBin(DongleState.CardReader);
-		setToast(`Loaded CardReader binary, starting reader server`);
-		setRunningCommand(false);
-		setIsLoading(false);
-		await sleep(500);
+		catch (e: any) {
+			setError("Error creating card", e);
+			//Delete the card from the local state
+			setCards((prev) => {
+				const tempCards = [...prev];
+				tempCards.pop();
+				return tempCards;
+			})
+			throw e;
+		}
 
-		const listenServer = await invoke('start_listen_server', { "port": selectedPort });
-		console.log({ listenServer });
 
-		rfidEventUnlisten.current = await listen<string>("rfid", (e) => {
-			console.log(e.payload);
-			setServerRfid(e.payload);
-		})
-		// -- Removing this because of the notification that shows up later 
-		// setToast("You may have to reboot the device once to make it work!")
-
-		// 		C:\Users\anhad\AppData\Local\Arduino15\packages\esp32\hardware\esp32\1.0.6/tools/partitions/boot_app0.bin 0x1000 C:\Users\anhad\AppData\Local\Arduino15\packages\esp32\hardware\esp32\1.0.6/tools/sdk/bin/bootloader_qio_80m.bin 0x10000 C:\Users\anhad\AppData\Local\Temp\arduino_build_509800/read_rfid.ino.bin 0x8000 C:\Users\anhad\AppData\Local\Temp\arduino_build_509800/read_rfid.ino.partitions.bin
 	}
+
 
 	return (
 		<>
 			<button
-				onClick={() => router.push("/")}
+				onClick={() => router.push("/main")}
 				className="text-gray text-left p-3 bg-[#213352] w-full text-[white] focus:outline-none focus:ring-[#213352]">Back
 			</button>
 			<div className="select-none justify-end text-center text-white w-full text-xl py-6 px-3 bg-[#454444]"><strong>Create Card</strong></div>
@@ -211,27 +158,12 @@ export default function CreateCard() {
 						className="flex flex-col items-center"
 					>
 						<code className='bg-[#8F95A0] cursor-pointer transition duration-300 hover:scale-95 rounded-lg p-3 mt-3 mb-3'>
-							{currBin == DongleState.CardReader &&
-								<strong>UID: {!rfid ? "N/A" : rfid}</strong>
-							}
-							{currBin != DongleState.CardReader &&
-								<>
-									<strong>UID: </strong>
-									<input
-										type="text"
-										disabled={isLoading}
-										placeholder="enter UID..."
-										className="input bg-inherit focus:outline-none focus:ring-slate text-white placeholder-white px-3 rounded-lg"
-										onChange={e => { setRfid(e.target.value) }}
-										value={rfid}
-									/>
-								</>
-							}
+							<strong>UID: {!rfid ? "N/A" : rfid}</strong>
 						</code>
 						<div className='flex flex-row items-center'>
 							<input
 								type="text"
-								disabled={isLoading}
+								value={name}
 								placeholder="enter name..."
 								className="input bg-white focus:outline-none focus:ring-slate text-dim-gray py-3 pl-3 pr-[3.75rem] m-3 rounded-lg"
 								onChange={e => { setName(e.target.value) }}
@@ -240,38 +172,24 @@ export default function CreateCard() {
 						<div className='flex flex-row items-center'>
 							<input
 								type={`${showPassword ? 'text' : 'password'}`}
-								disabled={isLoading}
+								value={password}
 								placeholder="enter password..."
-								className="input focus:outline-none focus:ring-slate bg-white text-dim-gray p-3 mb-3 rounded-l-lg"
+								className="input focus:outline-none focus:ring-slate bg-white text-dim-gray p-3 rounded-l-lg"
 								onChange={e => { setPassword(e.target.value) }}
 							/>
 							<button
 								onClick={(e) => {
-									setShowPassword(!showPassword);
 									e.preventDefault();
+									setShowPassword((prev) => !prev);
 								}}
 								type={"button"}
-								disabled={isLoading}
-								className="inline-flex focus:outline-none focus:ring-slate text-sm font-medium text-center items-center px-3 py-3 mb-3 text-white bg-white rounded-r-lg">
+								className="px-3 py-3 bg-white text-gray-700 rounded-r-lg focus:outline-none focus:ring-slate">
 								{showPassword ?
 									<img className='object-contain w-6 h-6 items-center' src={eyeOnIcon} />
 									:
 									<img className='object-contain w-6 h-6 items-center' src={eyeOffIcon} />
 								}
 							</button>
-						</div>
-						<div className="flex flex-row items-center justify-center">
-							<label htmlFor="create-card-modal" className="btn btn-ghost">
-								{currBin != DongleState.CardReader &&
-									<>
-										<button
-											onClick={onLoadReaderBin}
-											type={"button"}
-											className="text-gray text-center p-3 m-3 transition duration-300 hover:scale-105 bg-[#454444] rounded-lg text-[white] focus:ring-4 focus:outline-none focus:ring-[#454444]">Load Card Reader Binary
-										</button>
-									</>
-								}
-							</label>
 						</div>
 						<label htmlFor="create-card-modal" className="btn btn-ghost">
 							<button
@@ -280,15 +198,13 @@ export default function CreateCard() {
 							</button>
 						</label>
 					</form>
-					{(currBin == DongleState.CardReader) &&
-						<div className="bg-[#8B89AC] rounded-lg p-6 mt-3">
-							<h1 className='select-none text-center text-white'><strong>Scan RFID card to input UID</strong></h1>
-							<h3 className='select-none text-center text-white text-sm'>Reboot button on ESP32 may need to be pressed</h3>
-						</div>
-					}
+
+					<div className="bg-[#8B89AC] rounded-lg p-6 mt-3">
+						<h1 className='select-none text-center text-white'><strong>Scan RFID card to input UID</strong></h1>
+						{/* <h3 className='select-none text-center text-white text-sm'>Reboot button on ESP32 may need to be pressed</h3> */}
+					</div>
 				</div>
 			</div >
-				<CommandTerminal className={`p-6 ${!isLoading && 'hidden'} flex w-auto text-left`} commandObj={loadingBinaryCommand} enabled={isRunningCommand} />
 		</>
 	)
 }

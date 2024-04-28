@@ -1,9 +1,11 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::{
-    default, io,
+    default,
+    fs::read,
+    io::{self, BufRead, BufReader, Read},
     sync::{atomic::AtomicBool, Arc},
     thread,
     time::SystemTime,
@@ -15,7 +17,7 @@ use crate::{DongleRequest, DongleResponse, KeyDotErrors, SerialThreadRequest};
 pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::SerialPort>> {
     const BAUD_RATE: u32 = 115_200;
     let res = serialport::new(port_path, BAUD_RATE)
-        .timeout(Duration::from_millis(10))
+        .timeout(Duration::from_millis(1000))
         .open()?;
     Ok(res)
 }
@@ -39,9 +41,11 @@ pub fn serial_comms_loop(
     let start = SystemTime::now();
 
     // thread::sleep(duration::Duration::from_secs(2));
+    let mut serial_buf = String::new();
+
+    let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
     loop {
         let mut serial_buf: Vec<u8> = Vec::new();
-        let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
         loop {
             // This loop runs every available frame
             if kill_signal.load(std::sync::atomic::Ordering::SeqCst) {
@@ -74,7 +78,8 @@ pub fn serial_comms_loop(
             if let Some((_, time)) = current_request {
                 // dbg!(time.elapsed().unwrap());
                 if time.elapsed().unwrap() > REQUEST_TIMEOUT {
-                    if let Some((request, _)) = current_request {
+                    //
+                    if let Some((request, _)) = current_request.take() {
                         dbg!(&request);
                         eprintln!("Request timed out for {:?}", request.payload);
                         request
@@ -87,14 +92,50 @@ pub fn serial_comms_loop(
                 }
             }
 
-            // println!("in loop");
+            // println!("in loop, {:?}", current_request);
 
+            //Another alternative, but this one is blocking
             match (port.bytes_to_read()) {
                 Ok(bytes_count) => {
+                    // if bytes_count > 0 {
+                    //     let mut byte = [0; 1];
+                    //     let port_val = port.read(&mut byte);
+                    //     match port_val {
+                    //         Ok(_) => {
+                    //             if byte[0] == b'\n' {
+                    //                 break;
+                    //             }
+                    //             if byte[0] != 0 {
+                    //                 serial_buf.push(byte[0]);
+                    //             }
+                    //         }
+                    //         Err(err) => {
+                    //             println!("Failed to read from port{}", err);
+                    //             anyhow::bail!(err);
+                    //         }
+                    //     }
+                    // }
+
                     if bytes_count > 0 {
-                        port.read_to_end(&mut serial_buf);
-                        break;
+                        // TODO hadnle error, probably overwriting the buffer for old data
+                        match port.read_to_end(&mut serial_buf) {
+                            Ok(_) => {
+                                break;
+                            }
+                            Err(err) => {
+                                println!(
+                                    "Likely not done reading bytes err:{}, str: {}",
+                                    err, String::from_utf8(serial_buf.clone()).unwrap()
+                                );
+                                continue;
+                            }
+                        }
                     }
+                    // if (bytes_count > 0) {
+                    //     let mut reader = BufReader::new(&mut port);
+                    //     reader.read_line(&mut serial_buf).unwrap();
+                    //     break;
+                    // }
                 }
                 Err(err) => {
                     println!("Failed to read from port: {}", err);
@@ -106,17 +147,19 @@ pub fn serial_comms_loop(
                     bail!("Failed to read from port: {:?}", err);
                 }
             }
+            thread::sleep(Duration::from_millis(100));
         }
 
         //Maybe json
         let maybe_dongle_request: Result<DongleResponse, serde_json::Error> =
             serde_json::from_slice(&serial_buf);
+        // serde_json::from_str(&serial_buf);
 
         match (maybe_dongle_request) {
             Ok(response) => {
                 // let request: DongleRequest = serde_json::from_slice(&serial_buf)?;
                 println!("WORKING!!!: {:?}", &response);
-                if let Some((request, _)) = current_request {
+                if let Some((request, _)) = current_request.take() {
                     request
                         .ret
                         .send(Ok(response))
@@ -133,13 +176,21 @@ pub fn serial_comms_loop(
                 }
             }
             Err(err) => {
-                if let Ok(json_string) = String::from_utf8(serial_buf.clone()) {
-                    eprintln!("Unreadable JSON: {}: err:{}", json_string, err);
+                if let Ok(serial_buf) = String::from_utf8(serial_buf.clone()) {
+                    eprintln!("Unreadable JSON: {}: err:{}", serial_buf, err);
+
+                    if let Some((request, _)) = current_request.take() {
+                        request
+                            .ret
+                            .send(Err(anyhow!("Undigestable JSON: {}", err)))
+                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
+                    }
+
                     app.emit_all(
                         "error",
                         KeyDotErrors::UndigestableJson {
                             error: err.to_string(),
-                            json: json_string,
+                            json: serial_buf.clone(),
                         },
                     )?;
                 }
@@ -156,7 +207,7 @@ mod tests {
 
     use serde::{Deserialize, Serialize};
 
-    use crate::{NewCard, DongleRequest};
+    use crate::{DongleRequest, NewCard};
 
     use super::get_port_instance;
 

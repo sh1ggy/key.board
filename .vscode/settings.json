@@ -25,6 +25,7 @@
         "*.tcc": "cpp",
         "random": "cpp",
         "functional": "cpp",
-        "type_traits": "cpp"
+        "type_traits": "cpp",
+        "cards.h": "c"
     }
 }

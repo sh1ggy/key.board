@@ -3,8 +3,9 @@
  *
  */
 
-#include "keyboard_ops.h"
+#include "keyboard.h"
 #include "constants.h"
+#include "cards.h"
 
 #include <inttypes.h>
 
@@ -87,6 +88,7 @@ static void app_send_hid_demo(void)
 {
     // Keyboard output: Send key 'a/A' pressed and released
     ESP_LOGI(TAG, "Sending Keyboard report");
+    // This syntax only initializes the first element of the array
     uint8_t keycode[6] = {HID_KEY_A};
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -110,21 +112,26 @@ static void app_send_hid_demo(void)
     uint8_t msg[6] = "beans";
     // This sends nothing
     tud_hid_report(HID_ITF_PROTOCOL_NONE, &msg, 6);
+
+    ESP_LOGI(TAG, "Sending payload optimised cum");
+
+    char keyboard_msg[] = "cum";
+    int len = strlen(keyboard_msg);
+
+    memset(keycode, 0, sizeof(keycode));
+
+    for (size_t i = 0; i < len; i++)
+    {
+        Keyboard_payload_t payload = ascii_2_keyboard_payload(keyboard_msg[i]);
+        keycode[i] = payload.keycode[0];
+    }
+
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
+    vTaskDelay(pdMS_TO_TICKS(5));
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
 
 /*******KEYDOTBOARD APP ******/
-typedef struct
-{
-    uint64_t *serial_number_buffer;
-    uint32_t total_rfid_tags;
-} RFID_DB_t;
-
-typedef struct
-{
-    char pass[MAX_PASS_SIZE];
-    char desc[MAX_DESC_SIZE];
-} NEW_CARD_t;
-
 typedef enum
 {
     APP_STATE_BOOT,
@@ -134,6 +141,8 @@ typedef enum
     APP_STATE_SEND_PASSWORD_DB,
     APP_STATE_SEND_RFID,
     APP_STATE_SAVE_NEW_CARD,
+    APP_STATE_CLEAR_CARD,
+    APP_STATE_CLEAR_ALL_CARDS,
     APP_STATE_MAX
 } APP_STATE;
 
@@ -141,6 +150,7 @@ typedef enum
 {
     REQUEST_TYPE_GET_PASSWORD_DESCS,
     REQUEST_TYPE_NEW_CARD,
+    REQUEST_TYPE_CLEAR_CARD,
     REQUEST_TYPE_MAX
 } REQUEST_TYPE;
 
@@ -148,6 +158,7 @@ static const char *REQUEST_TYPE_STR[REQUEST_TYPE_MAX] =
     {
         [REQUEST_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
         [REQUEST_TYPE_NEW_CARD] = "send_new_card",
+        [REQUEST_TYPE_CLEAR_CARD] = "clear_card",
 };
 
 typedef enum
@@ -155,6 +166,7 @@ typedef enum
     RESPONSE_TYPE_GET_PASSWORD_DESCS,
     RESPONSE_TYPE_DETECTED_RFID,
     RESPPONSE_TYPE_NEW_CARD,
+    RESPONSE_TYPE_CLEAR_CARD,
     RESPONSE_TYPE_MAX
 
 } RESPONSE_TYPE;
@@ -163,15 +175,8 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
     {
         [RESPONSE_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
         [RESPONSE_TYPE_DETECTED_RFID] = "detected_rfid",
-        [RESPONSE_TYPE_NEW_CARD] = "send_new_card",
+        [RESPPONSE_TYPE_NEW_CARD] = "send_new_card",
 };
-
-#define MAX_PASS_SIZE 50
-#define MAX_DESC_SIZE 50
-#define NVS_STORAGE_NAMESPACE "kb"
-#define TRIGGER_BUTTON_PIN GPIO_NUM_12
-#define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
-#define STATE_PRINT_INTERVAL 5 * 1000 * 1000
 
 APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
@@ -181,6 +186,7 @@ RFID_DB_t rfid_db;
 NEW_CARD_t current_new_card;
 uint64_t currently_scanned_tag;
 char currently_scanned_pass[MAX_PASS_SIZE];
+int current_clear_card_index;
 
 void get_pass_from_id(size_t in_selected_id, char *out_pass)
 {
@@ -317,8 +323,8 @@ void handle_request(cJSON *root)
     }
     else if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_NEW_CARD]) == 0)
     {
-        cJSON *pass_json = cJSON_GetObjectItem(root, "pass");
-        cJSON *desc_json = cJSON_GetObjectItem(root, "desc");
+        cJSON *pass_json = cJSON_GetObjectItem(root, "password");
+        cJSON *desc_json = cJSON_GetObjectItem(root, "name");
 
         if (pass_json == NULL || desc_json == NULL)
         {
@@ -326,45 +332,23 @@ void handle_request(cJSON *root)
             return;
         }
 
-        current_new_card.pass = pass_json->valuestring;
-        current_new_card.desc = desc_json->valuestring;
+        strcpy(current_new_card.pass, pass_json->valuestring);
+        strcpy(current_new_card.desc, desc_json->valuestring);
 
         state = APP_STATE_SAVE_NEW_CARD;
     }
-}
-
-// TODO: Add error handling
-void create_get_db_response(cJSON *root, char **json_str)
-{
-    cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_GET_PASSWORD_DESCS]);
-    cJSON *tags = cJSON_CreateArray();
-    for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
+    else if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_CLEAR_CARD]) == 0)
     {
-        cJSON *tag = cJSON_CreateObject();
-        cJSON_AddNumberToObject(tag, "rfid", rfid_db.serial_number_buffer[i]);
-
-        // Get the description from nvs, its ok if this takes long, we don't need to cache descs in mem
-        char desc_key[16];
-        sprintf(desc_key, "name%zu", i);
-        printf("Desckey: %s\n", desc_key);
-
-        char out_desc[MAX_DESC_SIZE];
-        size_t str_len = MAX_DESC_SIZE;
-        esp_err_t err = nvs_get_str(storage_handle, desc_key, out_desc, &str_len);
-        if (err == ESP_ERR_NVS_NOT_FOUND)
+        cJSON *index_json = cJSON_GetObjectItem(root, "index");
+        if (index_json == NULL)
         {
-            ESP_LOGE(TAG, "Desc for key '%s' not found in NVS\n", desc_key);
-            continue;
+            ESP_LOGE(TAG, "index not found in request");
+            return;
         }
 
-        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
-
-        cJSON_AddStringToObject(tag, "name", out_desc);
-        cJSON_AddItemToArray(tags, tag);
+        current_clear_card_index = index_json->valueint;
+        state = APP_STATE_CLEAR_CARD;
     }
-    cJSON_AddItemToObject(root, "descriptions", tags);
-    // *json_str = cJSON_Print(root);
-    *json_str = cJSON_PrintUnformatted(root);
 }
 
 void send_serial_msg()
@@ -375,36 +359,60 @@ void send_serial_msg()
     tud_cdc_write_flush();
 }
 
-void init_rfid_tags()
-{
-    ESP_LOGI(TAG, "Initialising Tag DB");
-    // Get the total number of tags from nvs
-    esp_err_t err = nvs_get_u32(storage_handle, "num_cards", &rfid_db.total_rfid_tags);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND)
-    {
-        ESP_LOGI(TAG, "No tags found in NVS");
-        return;
-    }
-    // malloc the buffer to match the number of tags
-    rfid_db.serial_number_buffer = (uint64_t *)malloc(rfid_db.total_rfid_tags * sizeof(uint64_t));
-
-    // Get the serial numbers from nvs
-    for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
-    {
-        char tag_key[16];
-        sprintf(tag_key, "tag%zu", i);
-        err = nvs_get_u64(storage_handle, tag_key, &rfid_db.serial_number_buffer[i]);
-        ESP_ERROR_CHECK(err);
-
-        ESP_LOGI(TAG, "Tag %s: (sn: %" PRIu64 "): ", tag_key, rfid_db.serial_number_buffer[i]);
-    }
-}
-
 void print_state_cb(void *arg)
 {
     ESP_LOGI(TAG, "State: %d", state);
 }
+
+#define SPACE_PRESS_COUNT 5
+void send_password_keystrokes()
+{
+
+    ESP_LOGI(TAG, "Sending password report");
+
+    for (size_t i = 0; i < SPACE_PRESS_COUNT; i++)
+    {
+
+        uint8_t keycode[6] = {HID_KEY_SPACE};
+        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
+        vTaskDelay(pdMS_TO_TICKS(5));
+
+        // release all keys between two characters; otherwise two identical
+        // consecutive characters are treated as just one key press
+        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    // Wait for UI to appear, pressing the deploy button again should work also
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    uint8_t keycode[6] = {HID_KEY_A};
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, KEYBOARD_MODIFIER_LEFTCTRL, keycode);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    int len = strlen(currently_scanned_pass);
+
+    // TODO: figure out condensed version of password payload.
+    // It has to split on capital letters/chars that need modifier keys
+    for (size_t i = 0; i < len; i++)
+    {
+        Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
+        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
+        vTaskDelay(pdMS_TO_TICKS(5));
+        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    keycode[0] = HID_KEY_ENTER;
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
+    vTaskDelay(pdMS_TO_TICKS(5));
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+}
+
 
 void app_main(void)
 {
@@ -483,7 +491,7 @@ void app_main(void)
     esp_timer_handle_t periodic_timer;
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
     // This is in microseconds
-    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
+    // ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
 
     while (1)
     {
@@ -512,32 +520,44 @@ void app_main(void)
                 send_serial_msg();
             }
 
+            // TODO: Check for other button presses for media keys
+
             break;
         }
         case APP_STATE_SEND_PASSWORD_DB:
         {
             cJSON *root = cJSON_CreateObject();
+            cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_GET_PASSWORD_DESCS]);
             char *json_str;
             create_get_db_response(root, &json_str);
-
             cJSON_Delete(root);
-            ESP_LOGI(TAG, "Sending JSON: %s", json_str);
+
+            size_t len = strlen(json_str);
+            ESP_LOGI(TAG, "Sending JSON: %s, size: %zu", json_str, len);
+
             // Send the json string and newline to denote end of message
-            tud_cdc_write(json_str, strlen(json_str));
+            uint32_t write_size = tud_cdc_write(json_str, len);
             // tud_cdc_write_char('\n'); //Not needed anymore
-            tud_cdc_write_flush();
+            uint32_t flush_size = tud_cdc_write_flush();
+
+            ESP_LOGI(TAG, "wrote: %lu, flushed: %lu", write_size, flush_size);
+
             free(json_str);
             state = APP_STATE_SCANNER_MODE;
             break;
         }
         case APP_STATE_SCANNER_MODE:
         {
-            // state = APP_STATE_APPLY_KEYSTROKES;
+            // Light strobe routine
             break;
         }
         case APP_STATE_APPLY_KEYSTROKES:
         {
-            // Apply the keystrokes
+            // Turn on blink routine
+            // We dont need to send this in multiple waves in a for loop since it might already be logged in by the time were tyring to press more
+            // Instead rely on the user to press the deploy button again
+            send_password_keystrokes();
+
             state = APP_STATE_MASTER_MODE;
             break;
         }
@@ -552,6 +572,7 @@ void app_main(void)
             // Send the json string
             tud_cdc_write(json_str, strlen(json_str));
             tud_cdc_write_flush();
+
             free(json_str);
             state = APP_STATE_SCANNER_MODE;
             break;
@@ -559,24 +580,23 @@ void app_main(void)
 
         case APP_STATE_SAVE_NEW_CARD:
         {
-            ESP_LOGI(TAG, "Saving new card with desc: %s", current_new_card.desc);
-            int new_total_cards = rfid_db.total_rfid_tags;
-            new_total_cards++;
+            save_new_card(&current_new_card, currently_scanned_tag);
+            // comment this out to test saving test cards
+            state = APP_STATE_SCANNER_MODE;
+            break;
+        }
 
-
-            char tag_key[16];
-            sprintf(tag_key, "tag%zu", new_total_cards);
-
-            esp_err_t err = nvs_set_str(storage_handle, "pass", current_new_card.pass);
-            
-            nvs_set_u32(storage_handle, "num_cards", new_total_cards);
-
+        case APP_STATE_CLEAR_CARD:
+        {
+            clear_card(current_clear_card_index);
+            state = APP_STATE_SCANNER_MODE;
             break;
         }
 
         default:
             break;
         }
+
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

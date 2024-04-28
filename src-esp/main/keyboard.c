@@ -1,9 +1,25 @@
-#include "keyboard_ops.h"
+#include "keyboard.h"
 
 #include "tinyusb.h"
 #include "constants.h"
 
 #include "esp_log.h"
+
+uint8_t const conv_table[128][2] = {HID_ASCII_TO_KEYCODE};
+
+Keyboard_payload_t ascii_2_keyboard_payload(char chr)
+{
+    Keyboard_payload_t payload = {
+        .keycode = {0},
+        .modifier = 0};
+    size_t ascii = (size_t)chr;
+
+    if (conv_table[ascii][0])
+        payload.modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+    payload.keycode[0] = conv_table[ascii][1];
+
+    return payload;
+}
 
 /************* TinyUSB descriptors ****************/
 
@@ -22,10 +38,10 @@
 const uint8_t hid_report_descriptor[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD)),
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE)),
-    //https://github.com/chegewara/EspTinyUSB/blob/master/src/device/hid/hidgeneric.cpp
-    // TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(HID_ITF_PROTOCOL_NONE)),
-    // https://github.com/hathach/tinyusb/blob/e54023d7657c9c090cdb068ce9352c1bba936f2e/examples/device/hid_generic_inout/src/usb_descriptors.c
-    // TUD_HID_REPORT_DESC_GENERIC_INOUT(CFG_TUD_HID_EP_BUFSIZE)
+    // https://github.com/chegewara/EspTinyUSB/blob/master/src/device/hid/hidgeneric.cpp
+    //  TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(HID_ITF_PROTOCOL_NONE)),
+    //  https://github.com/hathach/tinyusb/blob/e54023d7657c9c090cdb068ce9352c1bba936f2e/examples/device/hid_generic_inout/src/usb_descriptors.c
+    //  TUD_HID_REPORT_DESC_GENERIC_INOUT(CFG_TUD_HID_EP_BUFSIZE)
 };
 
 /**
@@ -48,10 +64,10 @@ const char *hid_string_descriptor[] = {
 
 enum
 {
-  ITF_NUM_CDC = 0,
-  ITF_NUM_CDC_DATA,
-  ITF_NUM_HID,
-  ITF_NUM_TOTAL
+    ITF_NUM_CDC = 0,
+    ITF_NUM_CDC_DATA,
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL
 };
 
 /**

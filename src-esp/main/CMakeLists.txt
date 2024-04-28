@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "tusb_hid_example_main.c" "keyboard_ops.c"
+    SRCS "comms.c" "keyboard.c" "cards.c" "tusb_hid_example_main.c"
     INCLUDE_DIRS "."
     # This is very important to build with nvs support
     # as shown here you dont need to add this to `components` in root cmake if this is here

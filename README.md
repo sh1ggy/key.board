@@ -70,6 +70,10 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 ###  Learns with wiring
 - One thing I learnt the hard way by killing an esp32-s2 mini (-$5) is to isolate your breadboard to 1 project at a time. There was current going back into the old esp that was there because of the power rails. Luckily second time I had a usb power meter the second time.
 
+### Rust learns 
+#### Rust Serial Port
+
+
 ## References
 - [**Inspiration**](https://github.com/Jaycar-Electronics/RFID-Computer-Login)
 - Icons from [**SVG REPO**](https://www.svgrepo.com/)

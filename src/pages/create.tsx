@@ -56,7 +56,7 @@ export default function CreateCard() {
 			})
 		}
 		else {
-			// router.push("/");
+			router.push("/");
 		}
 	}
 

@@ -36,11 +36,17 @@ enum DongleRequest {
     // https://serde.rs/variant-attrs.html
     #[serde(rename = "get_pass_descs")]
     GetPasswordDescriptionsAndSwitchReader,
+    #[serde(rename = "board_switch_main")]
     BoardSwitchMain,
-
     #[serde(rename = "send_new_card")]
     NewCard(NewCard),
-    ClearPasswords,
+    // This has the same effect as above
+    #[serde(rename = "clear_card")]
+    ClearCard {
+        index: u32,
+    },
+    #[serde(rename = "clear_cards")]
+    ClearCards,
 }
 
 impl DongleRequest {
@@ -51,7 +57,6 @@ impl DongleRequest {
             _ => false,
         }
     }
-    
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -65,7 +70,9 @@ enum DongleResponse {
     RFIDDetected(RFID),
 
     #[serde(rename = "send_new_card")]
-    ConfirmNewCard
+    ConfirmNewCard,
+    #[serde(rename = "clear_card")]
+    ClearCard,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -182,7 +189,6 @@ async fn test<R: Runtime>(
     // Ok(printThing)
     Ok((String::new()))
 }
-
 
 #[tauri::command]
 async fn get_current_working_dir() -> Result<String, String> {
@@ -345,9 +351,12 @@ async fn get_cards_db(
 }
 
 #[tauri::command]
-async fn send_new_card(card: NewCard, state: tauri::State<'_, ReaderThreadState>) -> Result<(), String> {
+async fn send_new_card(
+    card: NewCard,
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<(), String> {
     println!("Sending card {:?}", card);
-    return Ok(());
+    // return Ok(());
     let mut maybe_sender = None;
     {
         let state = state.reader_thread.read().await;
@@ -357,7 +366,7 @@ async fn send_new_card(card: NewCard, state: tauri::State<'_, ReaderThreadState>
         }
     }
 
-     if let Some(sender) = maybe_sender {
+    if let Some(sender) = maybe_sender {
         let (ret_tx, ret_rx) = oneshot::channel();
         let request = SerialThreadRequest {
             payload: DongleRequest::NewCard(card),

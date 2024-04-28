@@ -1,4 +1,8 @@
 ## User Guide
+Note: This is not meant as a replacement to remembering your passwords, please use your password manager or your brain for that.
+*YOU WILL FORGET YOUR PASSWORDS IF YOU RELY TOO MUCH ON THIS*.
+My recommendation is to practise your password every month or so.
+
 ### General Workflow
 This will summarise the intended usage of the application 
 1. Install and run the keyDOTboard application

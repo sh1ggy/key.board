@@ -166,7 +166,7 @@ typedef enum
 {
     RESPONSE_TYPE_GET_PASSWORD_DESCS,
     RESPONSE_TYPE_DETECTED_RFID,
-    RESPPONSE_TYPE_NEW_CARD,
+    RESPONSE_TYPE_NEW_CARD,
     RESPONSE_TYPE_CLEAR_CARD,
     RESPONSE_TYPE_MAX
 
@@ -176,7 +176,7 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
     {
         [RESPONSE_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
         [RESPONSE_TYPE_DETECTED_RFID] = "detected_rfid",
-        [RESPPONSE_TYPE_NEW_CARD] = "send_new_card",
+        [RESPONSE_TYPE_NEW_CARD] = "send_new_card",
 };
 
 APP_STATE state = APP_STATE_BOOT;
@@ -240,10 +240,13 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
                     char outpass[MAX_PASS_SIZE];
                     get_pass_from_id(i, outpass);
                     strcpy(currently_scanned_pass, outpass);
+                    // TODO: remove pass logging
+                    ESP_LOGI(TAG, "Found tag %" PRIu64 " in db, pass: %s", rfid_db.serial_number_buffer[i], outpass);
                     state = APP_STATE_APPLY_KEYSTROKES;
                     break;
                 }
             }
+            ESP_LOGE(TAG, "Couldnt find Found tag %" PRIu64 " in db", tag->serial_number);
         }
 
         default:
@@ -585,15 +588,23 @@ void app_main(void)
         }
         case APP_STATE_SEND_RFID:
         {
+            // Doesnt need to be streamed because of the small payload
             cJSON *root = cJSON_CreateObject();
             cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_DETECTED_RFID]);
             cJSON_AddNumberToObject(root, "rfid", currently_scanned_tag);
-            char *json_str = cJSON_Print(root);
+            char *json_str = cJSON_PrintUnformatted(root);
             cJSON_Delete(root);
             ESP_LOGI(TAG, "Sending JSON: %s", json_str);
             // Send the json string
-            tud_cdc_write(json_str, strlen(json_str));
-            tud_cdc_write_flush();
+
+            // tud_cdc_write(json_str, strlen(json_str));
+            // tud_cdc_write_char('\n');
+            // tud_cdc_write_flush();
+
+            size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t*) json_str, strlen(json_str));
+            tinyusb_cdcacm_write_queue_char(ITF_NUM_CDC, '\n');
+            esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC, 0);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
             free(json_str);
             state = APP_STATE_SCANNER_MODE;
@@ -603,6 +614,12 @@ void app_main(void)
         case APP_STATE_SAVE_NEW_CARD:
         {
             save_new_card(&current_new_card, currently_scanned_tag);
+
+            // cJSON *root = cJSON_CreateObject();
+            // cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_NEW_CARD]);
+            // cJSON_AddNumberToObject(root, "rfid", currently_scanned_tag);
+            // char *json_str = cJSON_PrintUnformatted(root);
+
             // comment this out to test saving test cards
             state = APP_STATE_SCANNER_MODE;
             break;

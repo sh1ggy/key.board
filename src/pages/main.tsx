@@ -62,9 +62,9 @@ export default function MainPage() {
             </div>
             :
             <div className='flex flex-wrap items-center justify-center'>
-              {cards.map((c, i) => {
+              {cards.reverse().map((c, i) => {
                 return (
-                  <CardsView key={i} card={c} cardIndex={i} />
+                  <CardsView key={i} card={c} cardIndex={cards.length- i} />
                 )
               })}
             </div>

@@ -85,7 +85,8 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 - [ ] error handling to handle disconnect
 
 
-- [ ] rewrite load binary to function as a way to load the first time binary.
+- [ ] rewrite load binary page to function as a way to load the first time binary.
 	- [ ] Add port selection
 	- [ ] Load binary
-	- [ ] Reset NVS
+	- [ ] Reset NVS on this page in case somethign went horribly wrong, we can make this two options, using partool or just doing it through payload
+	

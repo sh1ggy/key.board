@@ -1,6 +1,6 @@
 #pragma once
 
-static const char *TAG = "example";
+static const char *TAG = "keydot";
 
 #define MAX_PASS_SIZE 50
 #define MAX_DESC_SIZE 50

@@ -356,7 +356,6 @@ async fn send_new_card(
     state: tauri::State<'_, ReaderThreadState>,
 ) -> Result<(), String> {
     println!("Sending card {:?}", card);
-    // return Ok(());
     let mut maybe_sender = None;
     {
         let state = state.reader_thread.read().await;
@@ -386,6 +385,43 @@ async fn send_new_card(
         Err("Could not get sender".to_owned())
     }
 }
+
+#[tauri::command]
+async fn clear_card(
+    index: u32,
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<(), String> {
+    println!("Clearing card {:?}", index);
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+
+    if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::ClearCard{ index },
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
+        if let DongleResponse::ClearCard = response {
+            Ok(())
+        } else {
+            Err("Did not get correct clear card payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
+}
+
 
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]

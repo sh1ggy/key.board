@@ -30,6 +30,8 @@ void init_rfid_tags();
 /// @param root cjson root, caller is responsible for mem
 /// @param json_str json string, caller is responsible for mem clean
 void create_get_db_response(cJSON *root, char **json_str);
+// To be honest I think the above API isnt that great, the caller should just call the print function
+// This function is best reserved for just constructing the object
 
 void save_new_card(NEW_CARD_t *new_card, uint64_t currently_scanned_tag);
 

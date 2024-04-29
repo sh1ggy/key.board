@@ -99,6 +99,11 @@ void clear_card(int index)
     {
         // Get the next tag and move it to the current index
         int next_tag = i + 1;
+        if (next_tag >= rfid_db.total_rfid_tags)
+        {
+            break;
+        }
+        ESP_LOGI(TAG, "Moving tag %d to %d", next_tag, i);
         NEW_CARD_t card;
         uint64_t next_tag_sn;
 

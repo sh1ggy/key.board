@@ -6,6 +6,7 @@
 #include "keyboard.h"
 #include "constants.h"
 #include "cards.h"
+#include "comms.h"
 
 #include <inttypes.h>
 
@@ -354,9 +355,16 @@ void handle_request(cJSON *root)
 void send_serial_msg()
 {
     char msg[] = "Hello World!\n";
+    size_t len = strlen(msg);
 
-    tud_cdc_write(msg, sizeof(msg));
-    tud_cdc_write_flush();
+    size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC_DATA, (uint8_t *)msg, len);
+    esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC_DATA, 0);
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+
+    // This works too, does the same damn thing
+    //  tud_cdc_write(msg, sizeof(msg));
+    //  tud_cdc_write_flush();
 }
 
 void print_state_cb(void *arg)
@@ -412,7 +420,6 @@ void send_password_keystrokes()
     vTaskDelay(pdMS_TO_TICKS(5));
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
-
 
 void app_main(void)
 {
@@ -533,14 +540,29 @@ void app_main(void)
             cJSON_Delete(root);
 
             size_t len = strlen(json_str);
-            ESP_LOGI(TAG, "Sending JSON: %s, size: %zu", json_str, len);
+            // ESP_LOGI(TAG, "Sending JSON: %s, size: %zu", json_str, len);
 
-            // Send the json string and newline to denote end of message
-            uint32_t write_size = tud_cdc_write(json_str, len);
             // tud_cdc_write_char('\n'); //Not needed anymore
-            uint32_t flush_size = tud_cdc_write_flush();
+            // size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t *) json_str, len);
 
-            ESP_LOGI(TAG, "wrote: %lu, flushed: %lu", write_size, flush_size);
+            init_write_to_cdc(json_str);
+
+            const int max_loops = 500;
+
+            for (size_t i = 0; i < max_loops; i++)
+            {
+                if (write_to_cdc_loop())
+                {
+                    break;
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+            tinyusb_cdcacm_write_queue_char(ITF_NUM_CDC, '\n');
+
+            esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC, 0);
+
+            ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
             free(json_str);
             state = APP_STATE_SCANNER_MODE;

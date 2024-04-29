@@ -88,3 +88,4 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 - [ ] rewrite load binary to function as a way to load the first time binary.
 	- [ ] Add port selection
 	- [ ] Load binary
+	- [ ] Reset NVS

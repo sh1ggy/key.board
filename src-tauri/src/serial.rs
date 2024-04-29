@@ -17,7 +17,7 @@ use crate::{DongleRequest, DongleResponse, KeyDotErrors, SerialThreadRequest};
 pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::SerialPort>> {
     const BAUD_RATE: u32 = 115_200;
     let res = serialport::new(port_path, BAUD_RATE)
-        .timeout(Duration::from_millis(1000))
+        .timeout(Duration::from_millis(100))
         .open()?;
     Ok(res)
 }
@@ -45,7 +45,7 @@ pub fn serial_comms_loop(
 
     let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
     loop {
-        let mut serial_buf: Vec<u8> = Vec::new();
+        // let mut serial_buf: Vec<u8> = Vec::new();
         loop {
             // This loop runs every available frame
             if kill_signal.load(std::sync::atomic::Ordering::SeqCst) {
@@ -98,44 +98,31 @@ pub fn serial_comms_loop(
             match (port.bytes_to_read()) {
                 Ok(bytes_count) => {
                     // if bytes_count > 0 {
-                    //     let mut byte = [0; 1];
-                    //     let port_val = port.read(&mut byte);
-                    //     match port_val {
+                    //     match port.read_to_end(&mut serial_buf) {
                     //         Ok(_) => {
-                    //             if byte[0] == b'\n' {
-                    //                 break;
-                    //             }
-                    //             if byte[0] != 0 {
-                    //                 serial_buf.push(byte[0]);
-                    //             }
+                    //             break;
                     //         }
                     //         Err(err) => {
-                    //             println!("Failed to read from port{}", err);
-                    //             anyhow::bail!(err);
+                    //             //It was always arriving in this path before
+                    //             println!(
+                    //                 "Likely not done reading bytes err:{}, str: {}",
+                    //                 err, String::from_utf8(serial_buf.clone()).unwrap()
+                    //             );
+                    //             //May need to clear buffer here in order to restart
+                    //             serial_buf.clear();
+                    //             // continue;
+                    //             break;
                     //         }
                     //     }
                     // }
-
-                    if bytes_count > 0 {
-                        // TODO hadnle error, probably overwriting the buffer for old data
-                        match port.read_to_end(&mut serial_buf) {
-                            Ok(_) => {
-                                break;
-                            }
-                            Err(err) => {
-                                println!(
-                                    "Likely not done reading bytes err:{}, str: {}",
-                                    err, String::from_utf8(serial_buf.clone()).unwrap()
-                                );
-                                continue;
-                            }
-                        }
+                    if (bytes_count > 0) {
+                        let mut reader = BufReader::new(&mut port);
+                        // We are openly blocking here since clearly the mans has something to say so we should wait for him to finish
+                        // Despite what the docs say, this does not stop at EOF so the device has to send a newline
+                        //TODO: In here is another way the request can time out, handle
+                        reader.read_line(&mut serial_buf).unwrap();
+                        break;
                     }
-                    // if (bytes_count > 0) {
-                    //     let mut reader = BufReader::new(&mut port);
-                    //     reader.read_line(&mut serial_buf).unwrap();
-                    //     break;
-                    // }
                 }
                 Err(err) => {
                     println!("Failed to read from port: {}", err);
@@ -152,8 +139,8 @@ pub fn serial_comms_loop(
 
         //Maybe json
         let maybe_dongle_request: Result<DongleResponse, serde_json::Error> =
-            serde_json::from_slice(&serial_buf);
-        // serde_json::from_str(&serial_buf);
+            // serde_json::from_slice(&serial_buf);
+        serde_json::from_str(&serial_buf);
 
         match (maybe_dongle_request) {
             Ok(response) => {
@@ -176,24 +163,24 @@ pub fn serial_comms_loop(
                 }
             }
             Err(err) => {
-                if let Ok(serial_buf) = String::from_utf8(serial_buf.clone()) {
-                    eprintln!("Unreadable JSON: {}: err:{}", serial_buf, err);
+                // if let Ok(serial_buf) = String::from_utf8(serial_buf.clone()) {
+                eprintln!("Unreadable JSON: {}: err:{}", serial_buf, err);
 
-                    if let Some((request, _)) = current_request.take() {
-                        request
-                            .ret
-                            .send(Err(anyhow!("Undigestable JSON: {}", err)))
-                            .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
-                    }
-
-                    app.emit_all(
-                        "error",
-                        KeyDotErrors::UndigestableJson {
-                            error: err.to_string(),
-                            json: serial_buf.clone(),
-                        },
-                    )?;
+                if let Some((request, _)) = current_request.take() {
+                    request
+                        .ret
+                        .send(Err(anyhow!("Undigestable JSON: {}", err)))
+                        .unwrap_or_else(|err| eprintln!("Failed to send error: {:?}", err));
                 }
+
+                app.emit_all(
+                    "error",
+                    KeyDotErrors::UndigestableJson {
+                        error: err.to_string(),
+                        json: serial_buf.clone(),
+                    },
+                )?;
+                // }
                 // bail!("Fuck");
             }
         }

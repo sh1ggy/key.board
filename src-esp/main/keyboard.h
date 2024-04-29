@@ -12,6 +12,15 @@ typedef struct
     uint8_t modifier;
 } Keyboard_payload_t;
 
+typedef enum
+{
+    ITF_NUM_CDC = 0,
+    ITF_NUM_CDC_DATA,
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL
+} USB_INTERFACES;
+
+
 void initialise_keyboard();
 
 Keyboard_payload_t ascii_2_keyboard_payload(char chr);

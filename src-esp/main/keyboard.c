@@ -62,13 +62,6 @@ const char *hid_string_descriptor[] = {
 #define EPNUM_CDC_IN 0x82
 #define EPNUM_HID 0x83
 
-enum
-{
-    ITF_NUM_CDC = 0,
-    ITF_NUM_CDC_DATA,
-    ITF_NUM_HID,
-    ITF_NUM_TOTAL
-};
 
 /**
  * @brief Configuration descriptor

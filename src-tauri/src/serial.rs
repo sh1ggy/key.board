@@ -41,11 +41,11 @@ pub fn serial_comms_loop(
     let start = SystemTime::now();
 
     // thread::sleep(duration::Duration::from_secs(2));
-    let mut serial_buf = String::new();
+    // let mut serial_buf = String::new();
 
     let mut current_request: Option<(SerialThreadRequest, SystemTime)> = None;
     loop {
-        // let mut serial_buf: Vec<u8> = Vec::new();
+        let mut serial_buf: Vec<u8> = Vec::new();
         loop {
             // This loop runs every available frame
             if kill_signal.load(std::sync::atomic::Ordering::SeqCst) {
@@ -94,35 +94,31 @@ pub fn serial_comms_loop(
 
             // println!("in loop, {:?}", current_request);
 
-            //Another alternative, but this one is blocking
             match (port.bytes_to_read()) {
                 Ok(bytes_count) => {
-                    // if bytes_count > 0 {
-                    //     match port.read_to_end(&mut serial_buf) {
-                    //         Ok(_) => {
-                    //             break;
-                    //         }
-                    //         Err(err) => {
-                    //             //It was always arriving in this path before
-                    //             println!(
-                    //                 "Likely not done reading bytes err:{}, str: {}",
-                    //                 err, String::from_utf8(serial_buf.clone()).unwrap()
-                    //             );
-                    //             //May need to clear buffer here in order to restart
-                    //             serial_buf.clear();
-                    //             // continue;
-                    //             break;
-                    //         }
-                    //     }
-                    // }
-                    if (bytes_count > 0) {
-                        let mut reader = BufReader::new(&mut port);
-                        // We are openly blocking here since clearly the mans has something to say so we should wait for him to finish
-                        // Despite what the docs say, this does not stop at EOF so the device has to send a newline
-                        //TODO: In here is another way the request can time out, handle
-                        reader.read_line(&mut serial_buf).unwrap();
-                        break;
+                    if bytes_count > 0 {
+                        match port.read_to_end(&mut serial_buf) {
+                            Ok(_) => {
+                                break;
+                            }
+                            Err(err) => {
+                                //It was always arriving in this path before because it timed out
+                                //Still worked tho lol
+                                println!(
+                                    "No EOF found:{}, str: {}",
+                                    err, String::from_utf8(serial_buf.clone()).unwrap()
+                                );
+                                break;
+                            }
+                        }
                     }
+                    // if (bytes_count > 0) {
+                    //     let mut reader = BufReader::new(&mut port);
+                    //     // We are openly blocking here since clearly the mans has something to say so we should wait for him to finish
+                    //     //TODO: In here is another way the request can time out, handle
+                    //     reader.read_line(&mut serial_buf).unwrap();
+                    //     break;
+                    // }
                 }
                 Err(err) => {
                     println!("Failed to read from port: {}", err);
@@ -139,12 +135,11 @@ pub fn serial_comms_loop(
 
         //Maybe json
         let maybe_dongle_request: Result<DongleResponse, serde_json::Error> =
-            // serde_json::from_slice(&serial_buf);
-        serde_json::from_str(&serial_buf);
+            serde_json::from_slice(&serial_buf);
+        // serde_json::from_str(&serial_buf);
 
         match (maybe_dongle_request) {
             Ok(response) => {
-                // let request: DongleRequest = serde_json::from_slice(&serial_buf)?;
                 println!("WORKING!!!: {:?}", &response);
                 if let Some((request, _)) = current_request.take() {
                     request
@@ -163,7 +158,7 @@ pub fn serial_comms_loop(
                 }
             }
             Err(err) => {
-                // if let Ok(serial_buf) = String::from_utf8(serial_buf.clone()) {
+                if let Ok(serial_buf) = String::from_utf8(serial_buf.clone()) {
                 eprintln!("Unreadable JSON: {}: err:{}", serial_buf, err);
 
                 if let Some((request, _)) = current_request.take() {
@@ -180,7 +175,7 @@ pub fn serial_comms_loop(
                         json: serial_buf.clone(),
                     },
                 )?;
-                // }
+                }
                 // bail!("Fuck");
             }
         }

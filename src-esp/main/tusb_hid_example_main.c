@@ -315,7 +315,7 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
     else
     {
         // p here prints in hex
-        ESP_LOGI(TAG, "valid json: %s, this was the last char %p", json_buf, (void*)*(json_buf_ptr-1));
+        ESP_LOGI(TAG, "valid json: %s, this was the last char %p", json_buf, (void *)*(json_buf_ptr - 1));
         handle_request(root);
         // MAKE SURE WE RESET THE BUFFER AFTER WE HAVE HANDLED THE REQUEST
         json_buf_ptr = json_buf;
@@ -408,6 +408,65 @@ void send_serial_msg()
 }
 
 #define SPACE_PRESS_COUNT 5
+#define NULL_CHAR_SEND_COUNT 6
+
+// The reason why we have to do all this weird shit is because we are effectively mimicking a HID device.
+// They have nuance such as repeating keys when you hold down a key and such so passing strings across exactly will be difficult
+// My windows account is especiialy sensitive to this so its a good test case
+
+/// @brief Sends null keystrokes to the host
+/// @param count If this is 0, this sends default amount
+void send_null_keystrokes(int count)
+{
+    if (count == 0)
+    {
+        count = NULL_CHAR_SEND_COUNT;
+    }
+    // release all keys between two characters; otherwise two identical
+    // consecutive characters are treated as just one key press
+    for (size_t i = 0; i < count; i++)
+    {
+        vTaskDelay(pdMS_TO_TICKS(5));
+        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+    }
+}
+//https://forums.raspberrypi.com/viewtopic.php?t=317187#p1898513
+//https://electronics.stackexchange.com/questions/609090/stm32-usb-hid-keyboard-skipping-key-presses
+// These both show that the host controls when it wants to accept a HUD report, so sending more meaninglessly does nothing. 
+
+void send_keystrokes_internal()
+{
+    int len = strlen(currently_scanned_pass);
+    int i = 0;
+    bool send_null = false;
+    while (i < len)
+    {
+        if (!tud_hid_ready())
+        {
+            ESP_LOGE(TAG, "HID Interface not ready");
+        }
+        else
+        {
+            if (send_null)
+            {
+                send_null_keystrokes(1);
+                send_null = false;
+            }
+            else
+            {
+                ESP_LOGE(TAG, "Sending character: %c", currently_scanned_pass[i]);
+                Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
+                tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
+                send_null_keystrokes(1);
+                i++;
+                send_null = true;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 void send_password_keystrokes()
 {
 
@@ -418,12 +477,9 @@ void send_password_keystrokes()
 
         uint8_t keycode[6] = {HID_KEY_SPACE};
         tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
-        vTaskDelay(pdMS_TO_TICKS(5));
-
-        // release all keys between two characters; otherwise two identical
-        // consecutive characters are treated as just one key press
-        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
         vTaskDelay(pdMS_TO_TICKS(10));
+        send_null_keystrokes(0);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     // Wait for UI to appear, pressing the deploy button again should work also
@@ -431,33 +487,47 @@ void send_password_keystrokes()
 
     uint8_t keycode[6] = {HID_KEY_A};
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, KEYBOARD_MODIFIER_LEFTCTRL, keycode);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+    send_null_keystrokes(0);
 
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    int len = strlen(currently_scanned_pass);
+    /*
+        int len = strlen(currently_scanned_pass);
 
-    // TODO: figure out condensed version of password payload.
-    // It has to split on capital letters/chars that need modifier keys
-    for (size_t i = 0; i < len; i++)
-    {
-        Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
-        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
-        //This delay has to at least be 10
-        vTaskDelay(pdMS_TO_TICKS(10));
-        tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
+        // TODO: figure out condensed version of password payload.
+        // It has to split on capital letters/chars that need modifier keys
 
-    keycode[0] = HID_KEY_ENTER;
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
+        // Repeat logic doesnt work, this seems to fail even with non repeating characters
+        int repeat_counter = NULL_CHAR_SEND_COUNT;
+        for (size_t i = 0; i < len; i++)
+        {
+            Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
+            tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
+            // This delay has to at least be 10 (maybe 5)
+            vTaskDelay(pdMS_TO_TICKS(10));
+
+            if (i > 1 && currently_scanned_pass[i] == currently_scanned_pass[i - 1])
+            {
+                repeat_counter++;
+                ESP_LOGE(TAG, "Repeat character: %c %d times", currently_scanned_pass[i], repeat_counter);
+            }
+            else
+            {
+                repeat_counter = NULL_CHAR_SEND_COUNT;
+            }
+            send_null_keystrokes(repeat_counter);
+        }
+    */
+
+    send_keystrokes_internal();
+
     vTaskDelay(pdMS_TO_TICKS(10));
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 
-    vTaskDelay(pdMS_TO_TICKS(100));
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+    uint8_t enter_keycode[6] = {HID_KEY_ENTER};
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, enter_keycode);
+    send_null_keystrokes(0);
+
+    ESP_LOGI(TAG, "Password sent");
 }
 
 #ifdef LOG_DETAILS

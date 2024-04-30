@@ -5,12 +5,16 @@
 - [x] Read preferences value from nvs 
 - [x] setup HID and CDC interfaces for printing to serial as well
     - Track this issue https://github.com/espressif/esp-idf/issues/13240
-- [ ] Render cards and add global error event listener
-- [ ] Listen for RFID
-- [ ] Have a task that every so often sends null keyboard report
+- [x] Render cards 
+- [x] Listen for RFID
+- [ ] add global error event listener
+- [ ] Manual program button entry ( us gpio 0)
+- [ ] mark etchings on the enclosure
+    - Scan here
+
 
 ### Future
-- [ ] Reach feature parity with arduino version
+- [x] Reach feature parity with arduino version
 - [ ] Fix build-workflow to stop erroring
 
 ### Not doing

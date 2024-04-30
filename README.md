@@ -79,10 +79,16 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 - Icons from [**SVG REPO**](https://www.svgrepo.com/)
 
 ## TODO
-- [ ] Rewrite create to be the only screen that subscribes to the rfid alert
-- [ ] Send Newcard struct
-- [ ] Save and quit button on main 
+- [x] Rewrite create to be the only screen that subscribes to the rfid alert
+- [x] Send Newcard struct
 - [ ] error handling to handle disconnect
+- [ ] Tune keyboard timings
+- [ ] BIG EPIC BUTTON
+	- Hold down key, while held down keep sending spaces bars and stuff
+	- On release send the actual password
+- [ ] Indicator Leds
+- [ ] Solder onto perf board
+	- [ ]
 
 
 - [ ] rewrite load binary page to function as a way to load the first time binary.

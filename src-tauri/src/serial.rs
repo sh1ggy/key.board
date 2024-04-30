@@ -17,7 +17,7 @@ use crate::{DongleRequest, DongleResponse, KeyDotErrors, SerialThreadRequest};
 pub fn get_port_instance(port_path: &str) -> anyhow::Result<Box<dyn serialport::SerialPort>> {
     const BAUD_RATE: u32 = 115_200;
     let res = serialport::new(port_path, BAUD_RATE)
-        //For some reason on windows, setting this to a high number makes the reading operation actually take that long, 
+        //For some reason on windows, setting this to a high number makes the reading operation actually take that long,
         // it is not the fault of tinyusb_cdcacm_write_queue
         .timeout(Duration::from_millis(75))
         .open()?;
@@ -64,8 +64,10 @@ pub fn serial_comms_loop(
             if let Ok(request) = request_handler.try_recv() {
                 // Try and send the request to the dongle, conver the payload into bytes
                 // serde_json::to_writer(&mut port, &request.payload).unwrap();
-                let send = serde_json::to_string(&request.payload).unwrap();
+                let mut send = serde_json::to_string(&request.payload).unwrap();
                 println!("Sending to serial {}", send);
+                send.push('\n');
+                //TODO: Handle write errors
                 port.write_all(send.as_bytes());
 
                 // If the request doesnt wait for a response, set to None
@@ -302,4 +304,35 @@ mod tests {
     //     handle.join().unwrap();
     //     println!("{:?}", data);
     // }
+
+    extern "C" {
+        fn c_test_rust_ffi(num: i32);
+        fn c_test_increment_ptr();
+        fn c_print_hex();
+        fn c_test_crashing();
+    }
+
+    #[test]
+    fn test_print_num() {
+        let test_num = 12;
+        println!("Rust Number: {}", test_num);
+        unsafe {
+            c_test_rust_ffi(test_num);
+            c_print_hex();
+        }
+    }
+
+    #[test]
+    fn test_increment_ptr() {
+        unsafe {
+            c_test_increment_ptr();
+        }
+    }
+
+    #[test]
+    fn test_crashing() {
+        unsafe {
+            c_test_crashing();
+        }
+    }
 }

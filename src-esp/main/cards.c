@@ -1,18 +1,37 @@
 #include "cards.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 
 void init_rfid_tags()
 {
-    ESP_LOGI(TAG, "Initialising Tag DB");
+    if (rfid_db.serial_number_buffer != NULL)
+    {
+        ESP_LOGI(TAG, "SerialNumber buffer already existed, freeing it first, then initialising Tag DB");
+        free(rfid_db.serial_number_buffer);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Initialising fresh Tag DB");
+    }
+
     // Get the total number of tags from nvs
     esp_err_t err = nvs_get_u32(storage_handle, "num_cards", &rfid_db.total_rfid_tags);
 
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
-        ESP_LOGI(TAG, "No tags found in NVS");
+        ESP_LOGE(TAG, "No tags found in NVS, setting tags number to 1");
+        err = nvs_set_u32(storage_handle, "num_cards", 0);
+        rfid_db.total_rfid_tags = 0;
+        ESP_ERROR_CHECK(err);
         return;
     }
+    else
+    {
+        ESP_ERROR_CHECK(err);
+    }
+
+    ESP_LOGI(TAG, "There are %lu tags:", rfid_db.total_rfid_tags);
     // malloc the buffer to match the number of tags
     rfid_db.serial_number_buffer = (uint64_t *)malloc(rfid_db.total_rfid_tags * sizeof(uint64_t));
 
@@ -61,13 +80,14 @@ void create_get_db_response(cJSON *root, char **json_str)
     *json_str = cJSON_PrintUnformatted(root);
 }
 
-void save_card(NEW_CARD_t *new_card, uint64_t currently_scanned_tag, int index)
+void save_card(NEW_CARD_t *new_card, uint64_t *currently_scanned_tag, int index)
 {
-    ESP_LOGI(TAG, "Saving card at index %d", index);
+
+    ESP_LOGI(TAG, "Saving card at index %d, (sn: %" PRIu64 ")", index, *currently_scanned_tag);
 
     char tag_key[16];
     sprintf(tag_key, "tag%zu", index);
-    esp_err_t err = nvs_set_u64(storage_handle, tag_key, currently_scanned_tag);
+    esp_err_t err = nvs_set_u64(storage_handle, tag_key, *currently_scanned_tag);
 
     sprintf(tag_key, "pass%zu", index);
     err = nvs_set_str(storage_handle, tag_key, new_card->pass);
@@ -78,16 +98,17 @@ void save_card(NEW_CARD_t *new_card, uint64_t currently_scanned_tag, int index)
     ESP_ERROR_CHECK(err);
 }
 
-void save_new_card(NEW_CARD_t *new_card, uint64_t currently_scanned_tag)
+void save_new_card(NEW_CARD_t *new_card, uint64_t *currently_scanned_tag)
 {
     ESP_LOGI(TAG, "Saving new card with desc: %s", new_card->desc);
-
     save_card(new_card, currently_scanned_tag, rfid_db.total_rfid_tags);
 
     rfid_db.total_rfid_tags++;
     esp_err_t err = nvs_set_u32(storage_handle, "num_cards", rfid_db.total_rfid_tags);
-
     ESP_ERROR_CHECK(err);
+
+    // Sync db with nvs
+    init_rfid_tags();
 }
 
 void clear_card(int index)
@@ -101,6 +122,7 @@ void clear_card(int index)
         int next_tag = i + 1;
         if (next_tag >= rfid_db.total_rfid_tags)
         {
+            ESP_LOGI(TAG, "Reached end card at index %d", i);
             break;
         }
         ESP_LOGI(TAG, "Moving tag %d to %d", next_tag, i);
@@ -109,29 +131,48 @@ void clear_card(int index)
 
         size_t str_len = MAX_DESC_SIZE;
         char tag_key[16];
+
         sprintf(tag_key, "tag%zu", next_tag);
         err = nvs_get_u64(storage_handle, tag_key, &next_tag_sn);
-        sprintf(tag_key, "name%zu", next_tag);
-        err = nvs_get_str(storage_handle, tag_key, card.pass, &str_len);
-        sprintf(tag_key, "pass%zu", next_tag);
-        err = nvs_get_str(storage_handle, tag_key, card.desc, &str_len);
-
         ESP_ERROR_CHECK(err);
 
-        save_card(&card, next_tag_sn, i);
+        sprintf(tag_key, "name%zu", next_tag);
+        err = nvs_get_str(storage_handle, tag_key, card.desc, &str_len);
+        ESP_ERROR_CHECK(err);
+
+        sprintf(tag_key, "pass%zu", next_tag);
+        err = nvs_get_str(storage_handle, tag_key, card.pass, &str_len);
+        ESP_ERROR_CHECK(err);
+
+        save_card(&card, &next_tag_sn, i);
     }
 
     // Clear the last tag
+    size_t last_tag = rfid_db.total_rfid_tags - 1;
     char tag_key[16];
     sprintf(tag_key, "tag%zu", (size_t)rfid_db.total_rfid_tags);
     err = nvs_erase_key(storage_handle, tag_key);
+    ESP_ERROR_CHECK(err);
+
     sprintf(tag_key, "name%zu", (size_t)rfid_db.total_rfid_tags);
     err = nvs_erase_key(storage_handle, tag_key);
+    ESP_ERROR_CHECK(err);
+
     sprintf(tag_key, "pass%zu", (size_t)rfid_db.total_rfid_tags);
     err = nvs_erase_key(storage_handle, tag_key);
+    ESP_ERROR_CHECK(err);
 
     rfid_db.total_rfid_tags--;
     err = nvs_set_u32(storage_handle, "num_cards", rfid_db.total_rfid_tags);
-
     ESP_ERROR_CHECK(err);
+
+    // Sync db with nvs
+    init_rfid_tags();
+}
+
+void clear_db() {
+    ESP_LOGI(TAG, "NUKING THE entire NVS");
+    esp_err_t err = nvs_flash_erase();
+    ESP_ERROR_CHECK(err);
+    esp_restart();
 }

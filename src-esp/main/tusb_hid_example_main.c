@@ -16,6 +16,10 @@
 #include "freertos/task.h"
 #include "tinyusb.h"
 
+#ifdef LOG_DETAILS
+#include "esp_chip_info.h"
+#endif
+
 #include "tusb_cdc_acm.h"
 #include "tusb_console.h"
 #include "sdkconfig.h"
@@ -143,7 +147,7 @@ typedef enum
     APP_STATE_SEND_RFID,
     APP_STATE_SAVE_NEW_CARD,
     APP_STATE_CLEAR_CARD,
-    APP_STATE_CLEAR_ALL_CARDS,
+    APP_STATE_CLEAR_DB,
     APP_STATE_MAX
 } APP_STATE;
 
@@ -152,6 +156,7 @@ typedef enum
     REQUEST_TYPE_GET_PASSWORD_DESCS,
     REQUEST_TYPE_NEW_CARD,
     REQUEST_TYPE_CLEAR_CARD,
+    REQUEST_TYPE_CLEAR_DB,
     REQUEST_TYPE_MAX
 } REQUEST_TYPE;
 
@@ -160,6 +165,7 @@ static const char *REQUEST_TYPE_STR[REQUEST_TYPE_MAX] =
         [REQUEST_TYPE_GET_PASSWORD_DESCS] = "get_pass_descs",
         [REQUEST_TYPE_NEW_CARD] = "send_new_card",
         [REQUEST_TYPE_CLEAR_CARD] = "clear_card",
+        [REQUEST_TYPE_CLEAR_DB] = "clear_db",
 };
 
 typedef enum
@@ -184,8 +190,8 @@ nvs_handle_t storage_handle;
 rc522_handle_t scanner;
 RFID_DB_t rfid_db;
 
+uint64_t currently_scanned_tag = 0;
 NEW_CARD_t current_new_card;
-uint64_t currently_scanned_tag;
 char currently_scanned_pass[MAX_PASS_SIZE];
 int current_clear_card_index;
 
@@ -258,10 +264,17 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
 }
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/performance/size.html#idf-py-size
 // This also helps https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/mem_alloc.html#_CPPv425heap_caps_print_heap_info8uint32_t
-// static uint8_t json_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
-// static uint8_t *json_buf_ptr = json_buf;
 
-static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+#define JSON_PAYLOAD_TIMEOUT_US (100 * 1000)
+
+static uint8_t json_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+static uint8_t *json_buf_ptr = json_buf;
+static int64_t last_payload_time_us = 0;
+
+// Keep in mind fs means normal speed lol
+#define FULL_SPEED_RX_BITRATE 64
+
+static uint8_t buf[FULL_SPEED_RX_BITRATE + 1];
 void handle_request(cJSON *root);
 // Itf stands for interface, it is the number that is specified in the configuration
 void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
@@ -281,30 +294,44 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
         ESP_LOGE(TAG, "Read error");
     }
 
-    // Method not needed if the json is sent all at once
-    // int64_t time = esp_timer_get_time();
-    // memcpy(json_buf_ptr, buf, rx_size);
-    // json_buf_ptr += rx_size;
-    // cJSON *root = cJSON_Parse((char *)json_buf);
-    // if (root == NULL)
-    // {
-    //     ESP_LOGE(TAG, "This is NOT valid json: %s", json_buf);
-    // }
-    // else {
-    //     json_buf_ptr = json_buf;
-    //     handle_request(root);
-    // }
+    /***** Buffering JSON *****/
+    // The limit of the read is 64 bytes over USB
 
-    cJSON *root = cJSON_Parse((char *)buf);
+    // If the time between the last payload and the current payload is greater than the timeout, reset the buffer
+    int64_t time_us = esp_timer_get_time();
+    if (time_us - last_payload_time_us > JSON_PAYLOAD_TIMEOUT_US)
+    {
+        json_buf_ptr = json_buf;
+    }
+
+    memcpy(json_buf_ptr, buf, rx_size);
+    json_buf_ptr += rx_size;
+    // TODO: This is a really inefficient way of checking the payload is all here, check instead for newline as last char
+    cJSON *root = cJSON_Parse((char *)json_buf);
     if (root == NULL)
     {
-        ESP_LOGE(TAG, "This is NOT valid json: %s", buf);
+        ESP_LOGE(TAG, "This is NOT valid json: %s", json_buf);
     }
     else
     {
+        // p here prints in hex
+        ESP_LOGI(TAG, "valid json: %s, this was the last char %p", json_buf, (void*)*(json_buf_ptr-1));
         handle_request(root);
+        // MAKE SURE WE RESET THE BUFFER AFTER WE HAVE HANDLED THE REQUEST
+        json_buf_ptr = json_buf;
     }
+
+    // cJSON *root = cJSON_Parse((char *)buf);
+    // if (root == NULL)
+    // {
+    //     ESP_LOGE(TAG, "This is NOT valid json: %s", buf);
+    // }
+    // else
+    // {
+    //     handle_request(root);
+    // }
     cJSON_Delete(root);
+    last_payload_time_us = time_us;
 }
 
 void handle_request(cJSON *root)
@@ -327,6 +354,12 @@ void handle_request(cJSON *root)
     }
     else if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_NEW_CARD]) == 0)
     {
+        if (currently_scanned_tag == 0)
+        {
+            ESP_LOGE(TAG, "No tag scanned, cannot save new card");
+            return;
+        }
+
         cJSON *pass_json = cJSON_GetObjectItem(root, "password");
         cJSON *desc_json = cJSON_GetObjectItem(root, "name");
 
@@ -353,6 +386,10 @@ void handle_request(cJSON *root)
         current_clear_card_index = index_json->valueint;
         state = APP_STATE_CLEAR_CARD;
     }
+    else if (strcmp(request_type, REQUEST_TYPE_STR[REQUEST_TYPE_CLEAR_DB]) == 0)
+    {
+        state = APP_STATE_CLEAR_DB;
+    }
 }
 
 void send_serial_msg()
@@ -368,11 +405,6 @@ void send_serial_msg()
     // This works too, does the same damn thing
     //  tud_cdc_write(msg, sizeof(msg));
     //  tud_cdc_write_flush();
-}
-
-void print_state_cb(void *arg)
-{
-    ESP_LOGI(TAG, "State: %d", state);
 }
 
 #define SPACE_PRESS_COUNT 5
@@ -424,6 +456,67 @@ void send_password_keystrokes()
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
 
+#ifdef LOG_DETAILS
+esp_chip_info_t chip_info;
+
+void print_memory_sizes(void)
+{
+
+    // uint32_t flash_size = ESP.getFlashChipSize();
+    // printf("--------> Flash size: %PRIu32 bytes\n", flash_size);
+
+    // Flash Size
+    const esp_partition_t *partition = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
+    if (partition)
+    {
+        ESP_LOGI("Memory Info", "Found App partition");
+        ESP_LOGI("Memory Info", "Partition Label: %s", partition->label);
+        ESP_LOGI("Memory Info", "Partition Type: %d", partition->type);
+        ESP_LOGI("Memory Info", "Partition Subtype: %d", partition->subtype);
+        ESP_LOGI("Memory Info", "Partition Size: %" PRIu32 " bytes", partition->size);
+    }
+    else
+    {
+        ESP_LOGE("Memory Info", "Failed to get the App partition");
+    }
+
+    // Total SPIRAM (PSRAM) Size
+    size_t spiram_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    if (spiram_size)
+    {
+        ESP_LOGI("Memory Info", "PSRAM Size: %zu bytes", spiram_size);
+    }
+    else
+    {
+        ESP_LOGI("Memory Info", "No PSRAM detected");
+    }
+
+    uint32_t total_internal_memory = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    uint32_t free_internal_memory = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t largest_contig_internal_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+
+    ESP_LOGI("Memory Info", "Total DRAM (internal memory): %" PRIu32 " bytes", total_internal_memory);
+    ESP_LOGI("Memory Info", "Free DRAM (internal memory): %" PRIu32 " bytes", free_internal_memory);
+    ESP_LOGI("Memory Info", "Largest free contiguous DRAM block: %" PRIu32 " bytes", largest_contig_internal_block);
+}
+
+void print_system_info_task(void *pvParameters)
+{
+    while (1)
+    {
+        size_t free_memory = esp_get_free_heap_size();
+        printf("Free Memory: %d bytes\n", free_memory);
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void print_state_cb(void *arg)
+{
+    ESP_LOGI(TAG, "State: %d", state);
+}
+#endif
+
 void app_main(void)
 {
     const gpio_config_t trigger_button_config = {
@@ -435,6 +528,23 @@ void app_main(void)
     };
 
     ESP_ERROR_CHECK(gpio_config(&trigger_button_config));
+
+#ifdef LOG_DETAILS
+    esp_chip_info(&chip_info);
+    print_memory_sizes();
+
+    const esp_timer_create_args_t periodic_timer_args = {
+        .callback = &print_state_cb,
+        /* name is optional, but may help identify the timer when debugging */
+        .name = "periodic state print"
+        // By default the timer is in task callback mode
+    };
+
+    esp_timer_handle_t periodic_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    // This is in microseconds
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
+#endif
 
     initialise_keyboard();
 
@@ -491,17 +601,6 @@ void app_main(void)
     rc522_start(scanner);
 
     state = APP_STATE_MASTER_MODE;
-    const esp_timer_create_args_t periodic_timer_args = {
-        .callback = &print_state_cb,
-        /* name is optional, but may help identify the timer when debugging */
-        .name = "periodic state print"
-        // By default the timer is in task callback mode
-    };
-
-    esp_timer_handle_t periodic_timer;
-    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-    // This is in microseconds
-    // ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
 
     while (1)
     {
@@ -530,8 +629,6 @@ void app_main(void)
                 send_serial_msg();
             }
 
-            // TODO: Check for other button presses for media keys
-
             break;
         }
         case APP_STATE_SEND_PASSWORD_DB:
@@ -543,10 +640,6 @@ void app_main(void)
             cJSON_Delete(root);
 
             size_t len = strlen(json_str);
-            // ESP_LOGI(TAG, "Sending JSON: %s, size: %zu", json_str, len);
-
-            // tud_cdc_write_char('\n'); //Not needed anymore
-            // size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t *) json_str, len);
 
             init_write_to_cdc(json_str);
 
@@ -596,12 +689,7 @@ void app_main(void)
             cJSON_Delete(root);
             ESP_LOGI(TAG, "Sending JSON: %s", json_str);
             // Send the json string
-
-            // tud_cdc_write(json_str, strlen(json_str));
-            // tud_cdc_write_char('\n');
-            // tud_cdc_write_flush();
-
-            size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t*) json_str, strlen(json_str));
+            size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t *)json_str, strlen(json_str));
             tinyusb_cdcacm_write_queue_char(ITF_NUM_CDC, '\n');
             esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC, 0);
             ESP_ERROR_CHECK_WITHOUT_ABORT(err);
@@ -613,7 +701,7 @@ void app_main(void)
 
         case APP_STATE_SAVE_NEW_CARD:
         {
-            save_new_card(&current_new_card, currently_scanned_tag);
+            save_new_card(&current_new_card, &currently_scanned_tag);
 
             // cJSON *root = cJSON_CreateObject();
             // cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_NEW_CARD]);
@@ -621,13 +709,19 @@ void app_main(void)
             // char *json_str = cJSON_PrintUnformatted(root);
 
             // comment this out to test saving test cards
-            state = APP_STATE_SCANNER_MODE;
+            // state = APP_STATE_SCANNER_MODE;
             break;
         }
 
         case APP_STATE_CLEAR_CARD:
         {
             clear_card(current_clear_card_index);
+            state = APP_STATE_SCANNER_MODE;
+            break;
+        }
+        case APP_STATE_CLEAR_DB:
+        {
+            clear_db();
             state = APP_STATE_SCANNER_MODE;
             break;
         }

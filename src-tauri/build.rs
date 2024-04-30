@@ -1,3 +1,7 @@
 fn main() {
-  tauri_build::build()
+    cc::Build::new()
+        // .file("foo.c")
+        .file("src/test.c")
+        .compile("test");
+    tauri_build::build()
 }

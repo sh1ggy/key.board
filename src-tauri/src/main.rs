@@ -45,8 +45,8 @@ enum DongleRequest {
     ClearCard {
         index: u32,
     },
-    #[serde(rename = "clear_cards")]
-    ClearCards,
+    #[serde(rename = "clear_db")]
+    ClearDb,
 }
 
 impl DongleRequest {

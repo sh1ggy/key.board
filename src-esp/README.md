@@ -20,6 +20,7 @@
     - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
 
 ## Learns
+- Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)
 - Run `idf.py partition-table` to get the partition table deets
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 

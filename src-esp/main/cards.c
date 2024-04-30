@@ -150,15 +150,15 @@ void clear_card(int index)
     // Clear the last tag
     size_t last_tag = rfid_db.total_rfid_tags - 1;
     char tag_key[16];
-    sprintf(tag_key, "tag%zu", (size_t)rfid_db.total_rfid_tags);
+    sprintf(tag_key, "tag%zu", last_tag);
     err = nvs_erase_key(storage_handle, tag_key);
     ESP_ERROR_CHECK(err);
 
-    sprintf(tag_key, "name%zu", (size_t)rfid_db.total_rfid_tags);
+    sprintf(tag_key, "name%zu", last_tag);
     err = nvs_erase_key(storage_handle, tag_key);
     ESP_ERROR_CHECK(err);
 
-    sprintf(tag_key, "pass%zu", (size_t)rfid_db.total_rfid_tags);
+    sprintf(tag_key, "pass%zu", last_tag);
     err = nvs_erase_key(storage_handle, tag_key);
     ESP_ERROR_CHECK(err);
 

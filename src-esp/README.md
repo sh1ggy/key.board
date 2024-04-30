@@ -7,6 +7,7 @@
     - Track this issue https://github.com/espressif/esp-idf/issues/13240
 - [ ] Render cards and add global error event listener
 - [ ] Listen for RFID
+- [ ] Have a task that every so often sends null keyboard report
 
 ### Future
 - [ ] Reach feature parity with arduino version

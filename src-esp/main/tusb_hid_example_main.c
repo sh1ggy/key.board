@@ -249,7 +249,7 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
                     // TODO: remove pass logging
                     ESP_LOGI(TAG, "Found tag %" PRIu64 " in db, pass: %s", rfid_db.serial_number_buffer[i], outpass);
                     state = APP_STATE_APPLY_KEYSTROKES;
-                    break;
+                    return;
                 }
             }
             ESP_LOGE(TAG, "Couldnt find Found tag %" PRIu64 " in db", tag->serial_number);
@@ -444,7 +444,8 @@ void send_password_keystrokes()
     {
         Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
         tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
-        vTaskDelay(pdMS_TO_TICKS(5));
+        //This delay has to at least be 10
+        vTaskDelay(pdMS_TO_TICKS(10));
         tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -452,7 +453,10 @@ void send_password_keystrokes()
 
     keycode[0] = HID_KEY_ENTER;
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
 
@@ -703,13 +707,13 @@ void app_main(void)
         {
             save_new_card(&current_new_card, &currently_scanned_tag);
 
-            // cJSON *root = cJSON_CreateObject();
-            // cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_NEW_CARD]);
-            // cJSON_AddNumberToObject(root, "rfid", currently_scanned_tag);
-            // char *json_str = cJSON_PrintUnformatted(root);
+            cJSON *root = cJSON_CreateObject();
+            cJSON_AddStringToObject(root, "response_type", RESPONSE_TYPE_STR[RESPONSE_TYPE_NEW_CARD]);
+            cJSON_AddNumberToObject(root, "rfid", currently_scanned_tag);
+            char *json_str = cJSON_PrintUnformatted(root);
 
             // comment this out to test saving test cards
-            // state = APP_STATE_SCANNER_MODE;
+            state = APP_STATE_SCANNER_MODE;
             break;
         }
 

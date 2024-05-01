@@ -430,9 +430,9 @@ void send_null_keystrokes(int count)
         tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
     }
 }
-//https://forums.raspberrypi.com/viewtopic.php?t=317187#p1898513
-//https://electronics.stackexchange.com/questions/609090/stm32-usb-hid-keyboard-skipping-key-presses
-// These both show that the host controls when it wants to accept a HUD report, so sending more meaninglessly does nothing. 
+// https://forums.raspberrypi.com/viewtopic.php?t=317187#p1898513
+// https://electronics.stackexchange.com/questions/609090/stm32-usb-hid-keyboard-skipping-key-presses
+//  These both show that the host controls when it wants to accept a HUD report, so sending more meaninglessly does nothing.
 
 void send_keystrokes_internal()
 {
@@ -454,7 +454,6 @@ void send_keystrokes_internal()
             }
             else
             {
-                ESP_LOGE(TAG, "Sending character: %c", currently_scanned_pass[i]);
                 Keyboard_payload_t payload = ascii_2_keyboard_payload(currently_scanned_pass[i]);
                 tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
                 send_null_keystrokes(1);
@@ -467,6 +466,28 @@ void send_keystrokes_internal()
     }
 }
 
+void wait_for_hid_ready()
+{
+    while (!tud_hid_ready())
+    {
+        ESP_LOGE(TAG, "HID Interface not ready");
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void send_single_keystroke(char c)
+{
+    wait_for_hid_ready();
+
+    ESP_LOGI(TAG, "Sending character: %c", c);
+    Keyboard_payload_t payload = ascii_2_keyboard_payload(c);
+    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, payload.modifier, payload.keycode);
+
+    wait_for_hid_ready();
+
+    send_null_keystrokes(0);
+}
+
 void send_password_keystrokes()
 {
 
@@ -474,10 +495,10 @@ void send_password_keystrokes()
 
     for (size_t i = 0; i < SPACE_PRESS_COUNT; i++)
     {
-
+        wait_for_hid_ready();
         uint8_t keycode[6] = {HID_KEY_SPACE};
         tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        wait_for_hid_ready();
         send_null_keystrokes(0);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -485,8 +506,11 @@ void send_password_keystrokes()
     // Wait for UI to appear, pressing the deploy button again should work also
     vTaskDelay(pdMS_TO_TICKS(500));
 
+    wait_for_hid_ready();
+
     uint8_t keycode[6] = {HID_KEY_A};
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, KEYBOARD_MODIFIER_LEFTCTRL, keycode);
+    wait_for_hid_ready();
     send_null_keystrokes(0);
 
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -523,8 +547,10 @@ void send_password_keystrokes()
 
     vTaskDelay(pdMS_TO_TICKS(10));
 
+    wait_for_hid_ready();
     uint8_t enter_keycode[6] = {HID_KEY_ENTER};
     tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, enter_keycode);
+    wait_for_hid_ready();
     send_null_keystrokes(0);
 
     ESP_LOGI(TAG, "Password sent");

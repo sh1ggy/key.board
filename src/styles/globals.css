@@ -14,3 +14,7 @@
   background-color: #292828;
 }
 
+input::-ms-reveal,
+input::-ms-clear {
+      display: none;
+}

@@ -9,6 +9,8 @@ static const char *TAG = "keydot";
 #define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
 #define STATE_PRINT_INTERVAL 5 * 1000 * 1000
 
+#define SCANNED_CARD_EXPIRY_MS 5000
+
 #define LOG_DETAILS
 #define LOG_HEAP
 #define LOG_STATE

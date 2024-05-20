@@ -26,6 +26,8 @@
         "random": "cpp",
         "functional": "cpp",
         "type_traits": "cpp",
-        "cards.h": "c"
+        "cards.h": "c",
+        "rc522.h": "c",
+        "rfid.h": "c"
     }
 }

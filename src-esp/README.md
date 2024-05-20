@@ -23,6 +23,7 @@
     - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
     - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
     - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
+- [ ] Conditionally compile either mock, mfrc522 or pn532
 
 ## Learns
 - Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)

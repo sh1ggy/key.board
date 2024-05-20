@@ -34,6 +34,9 @@ similar to the teensy. It has a divider, a hardware counter frequency, a max cou
 - The [high resolution timer](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_timer.html) (misappropriately named, this is more of a general purpose, higher level timer) 
 is an abstraction over the general purpose timer. It can use software tasks and ISRS and other great functionality.
 - https://www.eevblog.com/forum/microcontrollers/esp32-timers/msg3955919/#msg3955919
+- The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
+    - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
+    - 
 
 ## Launch instructions
 

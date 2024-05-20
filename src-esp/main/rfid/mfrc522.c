@@ -1,3 +1,9 @@
+/*
+ * IMPLEMENTATION FOR RFID USING THE MFRC522 CHIP 
+ * https://www.nxp.com/docs/en/data-sheet/MFRC522.pdf
+ */
+
+
 #include "rfid.h"
 #include "../constants.h"
 #include "rc522.h"

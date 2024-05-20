@@ -6,5 +6,5 @@ std::string test_str;
 void setup_rfid_reader()
 {
     test_str = "Mock tester";
-    std::cout << "Running setup for " << test_str;
+    std::cout << "Running setup for " << test_str << '\n';
 }

@@ -1,4 +1,12 @@
 #include "profile.h"
+#include <esp_log.h>
+#include "esp_chip_info.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sdkconfig.h"
+
+#include "nvs_flash.h"
+#include "nvs.h"
 
 esp_chip_info_t chip_info;
 

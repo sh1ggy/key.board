@@ -1271,6 +1271,14 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
+# PN532
+#
+# CONFIG_PN532_DEBUG_DX is not set
+# CONFIG_PN532_DEBUG_MSG is not set
+# CONFIG_PN532_DUMP is not set
+# end of PN532
+
+#
 # TinyUSB Stack
 #
 CONFIG_TINYUSB_DEBUG_LEVEL=0

@@ -28,6 +28,7 @@
         "type_traits": "cpp",
         "cards.h": "c",
         "rc522.h": "c",
-        "rfid.h": "c"
+        "rfid.h": "c",
+        "stdlib.h": "c"
     }
 }

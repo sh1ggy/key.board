@@ -16,6 +16,9 @@
 ### Future
 - [x] Reach feature parity with arduino version
 - [ ] Fix build-workflow to stop erroring
+#### Optimizations
+- [ ] Switch from a state driven paradigm to a event driven paradigm, nothing mutates the state, u just use queues in a bunch of tasks waiting for their time to shine
+- [ ] Put the esp to sleep when PC is sleeping, wake esp AND pc up on button press
 
 ### Not doing
 - [ ] Send and recieve HID data from rfid reader
@@ -28,15 +31,17 @@
 ## Learns
 - Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)
 - Run `idf.py partition-table` to get the partition table deets
+- [https://github.com/SensorsIot/Morse-Trainer/blob/master/MTR_V3/MTR_V3/Coordinator.h#L135](Good demo for tasks), found on [this video](https://youtu.be/684KSAvYbw4?si=wxXziabIUMjCr8fs&t=1210)
+- The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
+    - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
+    - 
+
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 
 similar to the teensy. It has a divider, a hardware counter frequency, a max count and an alarm (ISR callback);
 - The [high resolution timer](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_timer.html) (misappropriately named, this is more of a general purpose, higher level timer) 
 is an abstraction over the general purpose timer. It can use software tasks and ISRS and other great functionality.
 - https://www.eevblog.com/forum/microcontrollers/esp32-timers/msg3955919/#msg3955919
-- The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
-    - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
-    - 
 
 ## Launch instructions
 

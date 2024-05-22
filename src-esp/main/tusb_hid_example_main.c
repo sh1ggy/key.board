@@ -429,7 +429,7 @@ void send_password_keystrokes()
 
 void print_state_cb(void *arg)
 {
-    ESP_LOGI(TAG, "State: %d", state);
+    ESP_LOGI(TAG, "State: %d, Currently Scanned: %d", state, current_clear_card_index);
 }
 
 void app_main(void)
@@ -644,6 +644,8 @@ void app_main(void)
         }
 
         default:
+            ESP_LOGI(TAG, "State not implemented: %d, going to MASTER", state);
+            state = APP_STATE_MASTER_MODE;
             break;
         }
 

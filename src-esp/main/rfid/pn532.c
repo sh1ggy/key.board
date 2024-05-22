@@ -40,6 +40,7 @@ static void rfid_task(void *arg)
             {
                 ESP_LOGE(TAG, "Failed to init again trying again");
                 pn532_end(pn532);
+                //Perhaps this time needs to be increased, sometimes the device needs more time to reset
                 vTaskDelay(pdMS_TO_TICKS(100));
                 pn532 = pn532_init(UART_PORT, BAUD_SETTING, TX_UART_PIN, RX_UART_PIN, 0x00);
 
@@ -116,6 +117,9 @@ static void rfid_task(void *arg)
         // taskYIELD();
     }
     ESP_LOGI(TAG, "Task finished");
+    if (pn532) {
+        pn532_end(pn532);
+    }
     esp_restart();
 
     vTaskDelete(NULL);

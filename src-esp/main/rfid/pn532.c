@@ -1,9 +1,9 @@
 #include "rfid.h"
 #include "../constants.h"
 #include "../main.h"
+#include "../cards.h"
 #include <pn532.h>
 #include <inttypes.h>
-#include "../cards.h"
 
 #include <stdlib.h>
 #include <esp_log.h>
@@ -17,7 +17,7 @@ pn532_t *pn532 = NULL;
 
 typedef struct
 {
-    rfid_db_t *db;
+    RFID_DB_t *db;
     APP_STATE *state;
     int *currently_scanned_tag_index;
     pn532_t *pn532;
@@ -26,12 +26,14 @@ typedef struct
 void rfid_task(void *arg)
 {
     task_context_t *context = (task_context_t *)arg;
+    ESP_LOGI(TAG, "Task started");
 
     while (1)
     {
-        context->currently_scanned_tag_index++;
-        if (context->currently_scanned_tag_index > context->db->total_rfid_tags) {
-            context->state = APP_STATE_SCANNER_MODE;
+        (*context->currently_scanned_tag_index)++;
+        if (*context->currently_scanned_tag_index > context->db->total_rfid_tags)
+        {
+            *context->state = APP_STATE_SCANNER_MODE;
         }
         break;
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -39,9 +41,8 @@ void rfid_task(void *arg)
     ESP_LOGI(TAG, "Task finished");
 }
 
-
-// There are 2 options here, have a loop method that checks for new tags, 
-// or use a separate task using semaphores to mutate global state, 
+// There are 2 options here, have a loop method that checks for new tags,
+// or use a separate task using semaphores to mutate global state,
 // atomicity is guaranteed on the read for small type so it is ok not to have to acquire on read
 // See https://github.com/SensorsIot/Morse-Trainer/blob/4ce1086d543dedf9c7add27b27afcdba25f3759c/MTR_V3/MTR_V3/Initialize.h#L146
 // and https://github.com/SensorsIot/Morse-Trainer/blob/4ce1086d543dedf9c7add27b27afcdba25f3759c/MTR_V3/MTR_V3/Coordinator.h#L137
@@ -50,7 +51,13 @@ void setup_rfid_reader()
 {
     // Make task for monitoring RFID
     // Since this device has only 1 core, taskss will run synchronously anyway, so semaphore is not needed (TO TEST)
+
+    ESP_LOGI(TAG, "Initing Pn532");
     pn532 = pn532_init(1, 4, 11, 12, 0x00);
+    if (pn532 == NULL) {
+        ESP_LOGE(TAG, "Failed to init pn532");
+        return;
+    }
 
     TaskHandle_t xHandle = NULL;
     int priority = tskIDLE_PRIORITY; // Or 0
@@ -69,8 +76,6 @@ void setup_rfid_reader()
         &context,
         priority,
         xHandle);
-
-
     if (xHandle == NULL)
     {
         ESP_LOGE(TAG, "Failed to create task");

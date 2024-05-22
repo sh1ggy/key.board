@@ -434,6 +434,7 @@ void print_state_cb(void *arg)
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "Starting Keydotboard");
     const gpio_config_t trigger_button_config = {
         .pin_bit_mask = TRIGGER_BUTTON_BIT_MASK,
         .mode = GPIO_MODE_INPUT,

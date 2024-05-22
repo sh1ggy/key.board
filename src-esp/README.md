@@ -7,6 +7,7 @@
     - Track this issue https://github.com/espressif/esp-idf/issues/13240
 - [x] Render cards 
 - [x] Listen for RFID
+- [x] Conditionally compile either mock, mfrc522 or pn532
 - [ ] add global error event listener
 - [ ] Manual program button entry ( us gpio 0)
 - [ ] mark etchings on the enclosure
@@ -26,7 +27,6 @@
     - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
     - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
     - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
-- [ ] Conditionally compile either mock, mfrc522 or pn532
 
 ## Learns
 - Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)
@@ -34,7 +34,7 @@
 - [https://github.com/SensorsIot/Morse-Trainer/blob/master/MTR_V3/MTR_V3/Coordinator.h#L135](Good demo for tasks), found on [this video](https://youtu.be/684KSAvYbw4?si=wxXziabIUMjCr8fs&t=1210)
 - The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
     - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
-    - 
+    - `while true; do idf.py flash -p /dev/ttyACM0; done`
 
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 

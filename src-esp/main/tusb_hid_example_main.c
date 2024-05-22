@@ -120,23 +120,6 @@ static void app_send_hid_demo(void)
     uint8_t msg[6] = "beans";
     // This sends nothing
     tud_hid_report(HID_ITF_PROTOCOL_NONE, &msg, 6);
-
-    ESP_LOGI(TAG, "Sending payload optimised cum");
-
-    char keyboard_msg[] = "cum";
-    int len = strlen(keyboard_msg);
-
-    memset(keycode, 0, sizeof(keycode));
-
-    for (size_t i = 0; i < len; i++)
-    {
-        Keyboard_payload_t payload = ascii_2_keyboard_payload(keyboard_msg[i]);
-        keycode[i] = payload.keycode[0];
-    }
-
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
-    vTaskDelay(pdMS_TO_TICKS(5));
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
 
 /*******KEYDOTBOARD APP ******/
@@ -184,7 +167,7 @@ NEW_CARD_t current_new_card;
 int currently_scanned_tag_index = -1;
 int current_clear_card_index;
 
-void get_pass_from_id(size_t in_selected_id, char *out_pass)
+esp_err_t get_pass_from_id(size_t in_selected_id, char *out_pass)
 {
     // key cannot be longer than 15
     char password_key[16];
@@ -198,12 +181,17 @@ void get_pass_from_id(size_t in_selected_id, char *out_pass)
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
         ESP_LOGE(TAG, "Password for key '%s' not found in NVS\n", password_key);
-        return;
+        return err;
     }
-    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+    if (err != ESP_OK)
+    {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+        return err;
+    }
 
     ESP_LOGI(TAG, "Password value:%s, length:%d", out_pass, str_len);
-    // TODO return esp error value or make own enum for error handling
+
+    return ESP_OK;
 }
 
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/performance/size.html#idf-py-size
@@ -373,7 +361,12 @@ void wait_for_hid_ready()
 void send_password_keystrokes()
 {
     char currently_scanned_pass[MAX_PASS_SIZE];
-    get_pass_from_id(currently_scanned_tag_index, currently_scanned_pass);
+    esp_err_t err = get_pass_from_id(currently_scanned_tag_index, currently_scanned_pass);
+    if (err != ESP_OK)
+    {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+        return;
+    }
 
     // release all keys between two characters; otherwise two identical
     // consecutive characters are treated as just one key press
@@ -518,7 +511,7 @@ void app_main(void)
             {
                 char outpass[MAX_PASS_SIZE];
                 ESP_LOGI(TAG, "Got trigger");
-                get_pass_from_id(1, outpass);
+                get_pass_from_id(0, outpass);
 
                 // For some reason (composite device I think) tud dismounts after sleep
                 // TODO: Invetigate this with base HID example that doesnt do this

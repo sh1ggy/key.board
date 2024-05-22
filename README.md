@@ -44,6 +44,7 @@ The Pn532 is a very versatile chip however it is slightly more expensive in mass
 Total power used when using chips
 - RC522: ~24mA
 - PN532: ~95mA
+This may however simply be the result of using the chip in HSU mode, which is the only modern library I could find for this chip.
 
 ## Development
 ### Process for Building ESP32 Binaries 

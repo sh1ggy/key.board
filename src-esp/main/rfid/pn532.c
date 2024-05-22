@@ -64,6 +64,9 @@ static void rfid_task(void *arg)
         if (cards < 0)
         {
             ESP_LOGE(TAG, "Reading cards PN532 error: %s, code: %d", pn532_err_to_name(-cards), cards);
+            retries++;
+            if (retries > MAX_RETRIES)
+                break;
         }
 
         if (cards >= 0)
@@ -120,6 +123,7 @@ static void rfid_task(void *arg)
     if (pn532) {
         pn532_end(pn532);
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
     esp_restart();
 
     vTaskDelete(NULL);

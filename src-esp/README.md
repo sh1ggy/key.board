@@ -35,6 +35,10 @@
 - The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
     - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
     - `while true; do idf.py flash -p /dev/ttyACM0; done`
+- tracking sdkconfig with git is rough especially between esp-idf versions, regenerate per requirement with following settings
+    - TinyUsb enable cdc
+    - TinyUsb enable hid
+    - enable serial console through custom uart, uart0 or cdc but using cdc diallows tinyusb components
 
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 

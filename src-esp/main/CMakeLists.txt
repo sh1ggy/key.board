@@ -1,4 +1,4 @@
-set(USE_PN532 1)
+# set(USE_PN532 1)
 # set(USE_MRFC522 1)
 
 set(RFID_SRC "rfid/mock_rfid.cpp" )

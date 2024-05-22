@@ -429,7 +429,7 @@ void send_password_keystrokes()
 
 void print_state_cb(void *arg)
 {
-    ESP_LOGI(TAG, "State: %d, Currently Scanned: %d", state, current_clear_card_index);
+    ESP_LOGI(TAG, "State: %d, Currently Scanned: %d", state, currently_scanned_tag_index);
 }
 
 void app_main(void)
@@ -444,23 +444,6 @@ void app_main(void)
     };
 
     ESP_ERROR_CHECK(gpio_config(&trigger_button_config));
-
-#ifdef LOG_DETAILS
-    esp_chip_info(&chip_info);
-    print_memory_sizes();
-
-    const esp_timer_create_args_t periodic_timer_args = {
-        .callback = &print_state_cb,
-        /* name is optional, but may help identify the timer when debugging */
-        .name = "periodic state print"
-        // By default the timer is in task callback mode
-    };
-
-    esp_timer_handle_t periodic_timer;
-    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-    // This is in microseconds
-    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
-#endif
 
     initialise_keyboard();
 
@@ -504,6 +487,23 @@ void app_main(void)
     init_rfid_tags();
 
     setup_rfid_reader();
+
+#ifdef LOG_DETAILS
+    esp_chip_info(&chip_info);
+    print_memory_sizes();
+
+    const esp_timer_create_args_t periodic_timer_args = {
+        .callback = &print_state_cb,
+        /* name is optional, but may help identify the timer when debugging */
+        .name = "periodic state print"
+        // By default the timer is in task callback mode
+    };
+
+    esp_timer_handle_t periodic_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    // This is in microseconds
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL_US));
+#endif
 
     state = APP_STATE_MASTER_MODE;
 
@@ -650,6 +650,6 @@ void app_main(void)
             break;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
     }
 }

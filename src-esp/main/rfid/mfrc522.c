@@ -41,8 +41,7 @@ static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, vo
             {
                 if (rfid_db.serial_number_buffer[i] == tag->serial_number)
                 {
-                    char outpass[MAX_PASS_SIZE];
-                    // TODO: remove pass logging
+                    currently_scanned_tag_index = i;
                     ESP_LOGI(TAG, "Found tag %" PRIu64 " in db", rfid_db.serial_number_buffer[i]);
                     state = APP_STATE_SCANNED_CARD;
                     return;

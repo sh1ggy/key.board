@@ -372,7 +372,6 @@ void wait_for_hid_ready()
 
 void send_password_keystrokes()
 {
-
     char currently_scanned_pass[MAX_PASS_SIZE];
     get_pass_from_id(currently_scanned_tag_index, currently_scanned_pass);
 

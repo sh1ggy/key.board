@@ -2,8 +2,10 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-#define RST_PIN 9 // Configurable, see typical pin layout above
+#define RST_PIN 3 // Configurable, see typical pin layout above
+// #define RST_PIN 9 // Configurable, see typical pin layout above
 #define SS_PIN 5  // Configurable, see typical pin layout above
+
 
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
 
@@ -13,7 +15,9 @@ void setup()
   while (!Serial)
     ; // Do nothing if no serial port is opened (added for Arduinos based on ATMEGA32U4)
   Serial.println("Testing out connecting to SPI ");
-  SPI.begin(); // Init SPI bus
+  
+  SPI.begin(7, 11, 9, 5); // Init SPI bus
+  // SPI.begin(); // Init SPI bus
   Serial.println("Testing out connecting to mfrc");
   mfrc522.PCD_Init();                // Init MFRC522
   delay(4);                          // Optional delay. Some board do need more time after init to be ready, see Readme

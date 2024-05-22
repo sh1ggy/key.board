@@ -14,25 +14,64 @@
 pn532_t *pn532 = NULL;
 
 #define DEFAULT_TASK_STACK_SIZE (4 * 1024)
+#define UART_PORT 1
+#define BAUD_SETTING 4 // This is 115200
+#define TX_UART_PIN 11
+#define RX_UART_PIN 12
+#define MAX_RETRIES 15 // We dont want the user to wait longer than 1.5 seconds for a retry
 
 static void rfid_task(void *arg)
 {
     ESP_LOGI(TAG, "Task started");
+    int retries = 0;
 
     while (1)
     {
-        //This is more for sanity checking, ideally the wiring is all done correctly
-        pn532_err_t err =pn532_lasterr(pn532);
-        if (err != PN532_ERR_OK)
+        // pn532_err_t err = pn532_lasterr(pn532);
+        // if (err != PN532_ERR_OK)
+        // {
+        //     // Doing this doesnt seem to help, reset is more effective and doable without changing the lib
+        //     // pn532->lasterr = PN532_ERR_OK;
+        //     pn532 = pn532_init(1, 4, 11, 12, 0x00);
+
+        //     // We should reset the device here, i.e clean and reinit
+
+        //     continue;
+        // }
+        int cards = pn532_Cards(pn532);
+        // If the result is negative, this means that there was an error, run it through  err to name and reinit
+        if (cards < 0)
         {
-            ESP_LOGE(TAG, "PN532 error: %s, code: %d", pn532_err_to_name(err), err);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            pn532->lasterr = PN532_ERR_OK;
-            //Maybe we should reset the device here, i.e clean and reinit
+            // int delay = 1000 * retries;
+            // ESP_LOGE(TAG, "PN532 error: %s, code: %d, %dth time restarting connection, waiting %dms before restarting...", pn532_err_to_name(-cards), cards, retries, delay);
+            ESP_LOGE(TAG, "PN532 error: %s, code: %d, %dth time restarting connection, restarting...", pn532_err_to_name(-cards), cards, retries);
+            pn532_end(pn532);
+            pn532 = pn532_init(UART_PORT, BAUD_SETTING, TX_UART_PIN, RX_UART_PIN, 0x00);
+            // Apply exponential backoff to the initialisation, and the amoutn of time you wait between then
+            vTaskDelay(pdMS_TO_TICKS(10000));
+            while (!pn532)
+            {
+                ESP_LOGE(TAG, "Failed to init again trying again");
+                pn532_end(pn532);
+                pn532 = pn532_init(UART_PORT, BAUD_SETTING, TX_UART_PIN, RX_UART_PIN, 0x00);
+                vTaskDelay(pdMS_TO_TICKS(100));
+
+                retries++;
+                if (retries > MAX_RETRIES)
+                {
+                    break;
+                }
+            }
+
+            retries++;
+            if (retries > MAX_RETRIES)
+            {
+                break;
+            }
+
             continue;
         }
-        int cards = pn532_Cards(pn532);
-        // vTaskDelay(pdMS_TO_TICKS(20));
+
         if (cards > 0)
         {
             char id[21];
@@ -53,6 +92,7 @@ static void rfid_task(void *arg)
             case APP_STATE_MASTER_MODE:
             {
                 // Check if the tag is in the database
+                bool isFound = false;
                 for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
                 {
                     if (rfid_db.serial_number_buffer[i] == currently_scanned_tag)
@@ -60,18 +100,22 @@ static void rfid_task(void *arg)
                         ESP_LOGI(TAG, "Found tag %" PRIu64 " in db", rfid_db.serial_number_buffer[i]);
                         currently_scanned_tag_index = i;
                         state = APP_STATE_SCANNED_CARD;
-                        return;
+                        isFound = true;
+                        break;
                     }
                 }
-                ESP_LOGE(TAG, "Couldnt find Found tag %" PRIu64 " in db", currently_scanned_tag);
+                if (!isFound)
+                {
+                    ESP_LOGE(TAG, "Couldnt find Found tag %" PRIu64 " in db", currently_scanned_tag);
+                }
             }
 
             default:
                 break;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
-        // taskYIELD();
+        // vTaskDelay(pdMS_TO_TICKS(100));
+        taskYIELD();
     }
     ESP_LOGI(TAG, "Task finished");
 
@@ -82,12 +126,14 @@ void setup_rfid_reader()
 {
     // Make task for monitoring RFID
     ESP_LOGI(TAG, "Initing Pn532");
-    pn532 = pn532_init(1, 4, 11, 12, 0x00);
+    pn532 = pn532_init(UART_PORT, BAUD_SETTING, TX_UART_PIN, RX_UART_PIN, 0x00);
     if (pn532 == NULL)
     {
         ESP_LOGE(TAG, "Failed to init pn532");
         return;
     }
+    // Wait for the device to startup
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     TaskHandle_t xHandle = NULL;
     int priority = tskIDLE_PRIORITY;

@@ -20,6 +20,11 @@ pn532_t *pn532 = NULL;
 #define RX_UART_PIN 12
 #define MAX_RETRIES 15 // We dont want the user to wait longer than 1.5 seconds for a retry
 
+
+//THE BEST WAY OF ARCHETECTING ACTORS WITH A STATE MACHINE:
+// This is an actor task that is responsible for reading the RFID reader
+// It JUST sends off events called (rfid_detected) events, instead of handling state switch and calling transitions here
+
 static void rfid_task(void *arg)
 {
     ESP_LOGI(TAG, "Task started");

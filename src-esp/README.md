@@ -16,11 +16,13 @@
 
 ### Future
 - [x] Reach feature parity with arduino version
-- [ ] Fix build-workflow to stop erroring
+- [x] Fix build-workflow to stop erroring
 #### Optimizations
 - [ ] Switch from a state driven paradigm to a event driven paradigm, nothing mutates the state, u just use queues in a bunch of tasks waiting for their time to shine
 - [ ] Put the esp to sleep when PC is sleeping, wake esp AND pc up on button press
 - [ ] rewrite mfrc522 module to use (this)[https://github.com/benklop/esp-idf-mfrc522] instead. Test with blanket repo first, then extend similar to mock_rfid.cpp
+- [ ] Switch to a more appropriate actor model, all event handlers, tasks, timers and ISRs should be actors. 
+    The main loop will receive these events in the nested switch and depending on the switched state, react accordingly. Right now the state is in concurrent access. 
 
 ### Not doing
 - [ ] Send and recieve HID data from rfid reader

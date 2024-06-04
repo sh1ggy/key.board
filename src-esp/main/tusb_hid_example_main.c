@@ -29,6 +29,7 @@
 
 #include "class/hid/hid_device.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -167,6 +168,7 @@ NEW_CARD_t current_new_card;
 int currently_scanned_tag_index = -1;
 int current_clear_card_index;
 
+
 esp_err_t get_pass_from_id(size_t in_selected_id, char *out_pass)
 {
     // key cannot be longer than 15
@@ -252,19 +254,69 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
         // MAKE SURE WE RESET THE BUFFER AFTER WE HAVE HANDLED THE REQUEST
         json_buf_ptr = json_buf;
     }
-
-    // cJSON *root = cJSON_Parse((char *)buf);
-    // if (root == NULL)
-    // {
-    //     ESP_LOGE(TAG, "This is NOT valid json: %s", buf);
-    // }
-    // else
-    // {
-    //     handle_request(root);
-    // }
     cJSON_Delete(root);
     last_payload_time_us = time_us;
 }
+
+
+/****  LED Control State  *****/
+ledc_channel_config_t ledc_channel;
+bool in_strobe = false;
+
+//use binary semaphore here to wait for the fade to finish 
+//ISRs are the perfect place to use semaphores like this since they kinda work like mini signals telling the main thread 
+static IRAM_ATTR bool cb_ledc_fade_end_event(const ledc_cb_param_t *param, void *user_arg)
+{
+    // if (param->event == LEDC_FADE_END_EVT)
+    // {
+    // }
+    return true;
+
+    // return (taskAwoken == pdTRUE);
+}
+
+void setup_led_c()
+{
+    //https://github.com/espressif/esp-idf/blob/v5.2.1/examples/peripherals/ledc/ledc_fade/main/ledc_fade_example_main.c
+    ledc_timer_config_t ledc_timer = {
+        .duty_resolution = LEDC_TIMER_13_BIT, // resolution of PWM duty
+        .freq_hz = 4000,                     // frequency of PWM signal
+        .speed_mode = LEDC_LOW_SPEED_MODE,          // timer mode
+        .timer_num = LEDC_TIMER_0,          // timer index
+        .clk_cfg = LEDC_AUTO_CLK,            // Auto select the source clock
+    };
+    ledc_timer_config(&ledc_timer);
+    ledc_channel = (ledc_channel_config_t) {
+            .channel = LEDC_CHANNEL_0,
+            .duty = 0,
+            .gpio_num = LED_PIN,
+            .speed_mode = LEDC_LOW_SPEED_MODE,
+            .timer_sel = LEDC_TIMER_0,
+            .hpoint = 0,
+            .flags.output_invert = 0
+        };
+
+    ledc_channel_config(&ledc_channel);
+    ledc_fade_func_install(0);
+    ledc_cb_register(ledc_channel.speed_mode, ledc_channel.channel, cb_ledc_fade_end_event, (void *) NULL);
+}
+
+void led_on()
+{
+    ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, SOLID_COLOR_DUTY);
+    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+}
+
+void led_off()
+{
+    ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
+    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+}
+
+void led_strobe(){
+
+}
+
 
 void handle_request(cJSON *root)
 {

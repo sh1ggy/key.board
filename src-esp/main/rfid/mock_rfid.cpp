@@ -47,11 +47,12 @@ void rfid_task(void *arg)
     vTaskDelete(NULL);
 }
 
-// There are 2 options here, have a loop method that checks for new tags,
+// There are 2 options here, non task based blocking check call for rfid, eg: rfid_check() call in the main loop
 // or use a separate task using semaphores to mutate global state,
 // atomicity is guaranteed on the read for small type so it is ok not to have to acquire on read
 // See https://github.com/SensorsIot/Morse-Trainer/blob/4ce1086d543dedf9c7add27b27afcdba25f3759c/MTR_V3/MTR_V3/Initialize.h#L146
 // and https://github.com/SensorsIot/Morse-Trainer/blob/4ce1086d543dedf9c7add27b27afcdba25f3759c/MTR_V3/MTR_V3/Coordinator.h#L137
+
 
 std::string test_str;
 void setup_rfid_reader()

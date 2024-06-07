@@ -13,8 +13,12 @@ endif()
 
 message("Using rfid impl: " ${RFID_SRC})
 
+# set(MAIN_FILE "tusb_hid_example_main.c")
+set(MAIN_FILE "led/demo_led.c")
+
+
 idf_component_register(
-    SRCS "comms.c" "keyboard.c" "cards.c" "util/profile.c" ${RFID_SRC} "tusb_hid_example_main.c"
+    SRCS "comms.c" "keyboard.c" "cards.c" "util/profile.c" "led/keydot_led.c" ${RFID_SRC} ${MAIN_FILE}
     INCLUDE_DIRS "."
     # This is very important to build with nvs support
     # as shown here you dont need to add this to `components` in root cmake if this is here

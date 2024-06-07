@@ -1,5 +1,5 @@
 #include "keydot_led.h"
-
+#include "esp_log.h"
 
 void start_strobe() {
     ESP_LOGI("LED", "Starting strobe effect");

@@ -1,4 +1,5 @@
 #include "keydot_led.h"
+#include "esp_log.h"
 
 QueueHandle_t command_queue;
 QueueHandle_t ack_queue;
@@ -6,6 +7,8 @@ QueueHandle_t ack_queue;
 
 
 void led_init() {
+    ESP_LOGI("LED", "Initialising LED on GPIO %d", LED_GPIO_PIN);
+    gpio_reset_pin(LED_GPIO_PIN);
     ledc_timer_config_t ledc_timer = {
         .speed_mode       = LEDC_LOW_SPEED_MODE,
         .timer_num        = LEDC_TIMER_0,

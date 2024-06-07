@@ -8,7 +8,7 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 
-#define LED_GPIO_PIN GPIO_NUM_39 // Define the GPIO pin where the LED is connected
+#define LED_GPIO_PIN GPIO_NUM_18 // Define the GPIO pin where the LED is connected
 
 typedef enum {
     STROBE_START,

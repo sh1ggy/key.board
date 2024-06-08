@@ -121,7 +121,7 @@ static void rfid_task(void *arg)
                 break;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
         // taskYIELD();
     }
     ESP_LOGI(TAG, "Task finished");

@@ -10,12 +10,14 @@
 #include "main.h"
 #include "rfid/rfid.h"
 #include "util/profile.h"
+#include "led/keydot_led.h"
 
 #include <inttypes.h>
 
 #include <stdlib.h>
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "tinyusb.h"
 
@@ -122,86 +124,6 @@ static void app_send_hid_demo(void)
     // This sends nothing
     tud_hid_report(HID_ITF_PROTOCOL_NONE, &msg, 6);
 }
-
-
-/****  LED Control State  *****/
-ledc_channel_config_t ledc_channel;
-bool in_strobe = false;
-SemaphoreHandle_t ledc_fade_end_sem;
-
-// use binary semaphore here to wait for the fade to finish
-// ISRs are the perfect place to use semaphores like this since they kinda work like mini signals telling the main thread
-static IRAM_ATTR bool cb_ledc_fade_end_event(const ledc_cb_param_t *param, void *user_arg)
-{
-    // if (param->event == LEDC_FADE_END_EVT)
-    // {
-    // }
-    return true;
-
-    // return (taskAwoken == pdTRUE);
-}
-
-void setup_led_c()
-{
-    // ledc is good for pwm, not for blinking, for that you would ideally use a timer
-    // https://github.com/espressif/esp-idf/blob/v5.2.1/examples/peripherals/ledc/ledc_fade/main/ledc_fade_example_main.c
-    ledc_timer_config_t ledc_timer = {
-        .duty_resolution = LEDC_TIMER_13_BIT, // resolution of PWM duty
-        .freq_hz = 4000,                      // frequency of PWM signal
-        .speed_mode = LEDC_LOW_SPEED_MODE,    // timer mode
-        .timer_num = LEDC_TIMER_0,            // timer index
-        .clk_cfg = LEDC_AUTO_CLK,             // Auto select the source clock
-    };
-    ledc_timer_config(&ledc_timer);
-    ledc_channel = (ledc_channel_config_t){
-        .channel = LEDC_CHANNEL_0,
-        .duty = 0,
-        .gpio_num = LED_PIN,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_sel = LEDC_TIMER_0,
-        .hpoint = 0,
-        .flags.output_invert = 0};
-
-    ledc_channel_config(&ledc_channel);
-    ledc_fade_func_install(0);
-    ledc_cb_register(ledc_channel.speed_mode, ledc_channel.channel, cb_ledc_fade_end_event, (void *)NULL);
-}
-
-// if theres problems with using this in the timer, try using th raw GPIO version
-void led_on()
-{
-    ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, SOLID_COLOR_DUTY);
-    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
-}
-
-void led_off()
-{
-    ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
-    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
-}
-
-void led_strobe_on()
-{
-
-    ledc_set_fade_with_time(ledc_channel.speed_mode,
-                            ledc_channel.channel, 0, LEDC_TEST_FADE_TIME);
-    ledc_fade_start(ledc_channel.speed_mode,
-                    ledc_channel.channel, LEDC_FADE_NO_WAIT);
-}
-
-/// @brief This is blocking since it waits for the semaphore to be released
-bool led_strobe_off()
-{
-    ledc_channel.
-    //Before semaphoreblocking, confirm that there is a fade in progress
-    xSemaphoreTake(ledc_fade_end_sem, portMAX_DELAY);
-    ledc_set_fade_with_time(ledc_channel.speed_mode,
-                            ledc_channel.channel, 0, LEDC_TEST_FADE_TIME);
-    ledc_fade_start(ledc_channel.speed_mode,
-                    ledc_channel.channel, LEDC_FADE_NO_WAIT);
-    return true;
-}
-
 
 /*******KEYDOTBOARD APP ******/
 
@@ -607,24 +529,45 @@ void app_main(void)
         }
         case APP_STATE_TRIGGER_BUTTON_PRESSED:
         {
-            // Test on release
-            // Test that the trigger button has been released, and if so swap state to sending the password, if the led blinking has expired, go back to master state
-            //TODO integrate with blink
-            int level = gpio_get_level(TRIGGER_BUTTON_PIN);
-            if (level)
+            // Send a blink command
+            led_message_t send_msg{.command = BLINK_START};
+            xQueueSend(command_queue, &send_msg, 0);
+
+            uint32_t timeout_ticker = xTaskGetTickCount();
+            const TickType_t timeout_ticker_timeout = 20000 / portTICK_PERIOD_MS; // 20 seconds
+            while (1)
             {
-                if (blink_led_timeout <= xTaskGetTickCount())
+                led_message_t msg;
+                int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+
+                // queue peek doesnt block, it returns true if the queue is not empty, use receive to block and extract the value out of the queue
+                if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)
                 {
+                    xQueueReceive(command_queue, &msg, 0); // Remove the command from the queue
                     ESP_LOGI(TAG, "Trigger button release and blink timeout, going back to master");
                     state = APP_STATE_MASTER_MODE;
+                    break;
                 }
-                else
+                else if (level)
                 {
                     ESP_LOGI(TAG, "Trigger button release, sending password");
                     state = APP_STATE_APPLY_KEYSTROKES;
+                    break;
+                }
+                else
+                {
+                    // Check if we have reached the timeout
+                    if (xTaskGetTickCount() - timeout_ticker >= timeout_ticker_timeout)
+                    {
+                        ESP_LOGE(TAG, "QUEUE DID NOT RETURN IN TIME, UNKNOWN ERROR, going back to master");
+                        xQueueReset(ack_queue);
+                        state = APP_STATE_MASTER_MODE;
+                        break;
+                    }
+                    // Delay for 10 ms
+                    vTaskDelay(pdMS_TO_TICKS(10));
                 }
             }
-
             break;
         }
         case APP_STATE_SEND_PASSWORD_DB:

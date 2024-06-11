@@ -1,6 +1,7 @@
 #include "keydot_led.h"
 #include "esp_log.h"
 #include "freertos/semphr.h"
+#include "blink_time.h"
 
 QueueHandle_t command_queue;
 QueueHandle_t ack_queue;
@@ -32,7 +33,7 @@ void led_init()
 
     ledc_fade_func_install(0);
 
-    ledc_cb_register(ledc_channel.speed_mode, ledc_channel.channel, cb_ledc_fade_end_event, (void *)NULL);
+    // ledc_cb_register(ledc_channel.speed_mode, ledc_channel.channel, cb_ledc_fade_end_event, (void *)NULL);
 }
 
 void strobe_led_task(void *param)
@@ -64,9 +65,10 @@ void strobe_led_task(void *param)
 
             if (msg.command == BLINK_START)
             {
-                //Based on the total Blink time, calculate the blink period
-
-                int blink_delay = TOTAL_BLINK_TIME; // Start with the specified initial blink period
+                int blink_delay = initial_blink_period; // Start with the specified initial blink period
+                bool is_decreasing = true;
+                uint32_t extra_blink_dur_ticker = xTaskGetTickCount();
+                const TickType_t extra_blink_dur_ticker_timeout = EXTRA_BLINK_DURATION / portTICK_PERIOD_MS; // 20 seconds
                 while (1)
                 {
                     // Check if a stop command or strobe command is received
@@ -83,20 +85,36 @@ void strobe_led_task(void *param)
                     ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
                     ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
                     vTaskDelay(blink_delay / portTICK_PERIOD_MS / 2);
+                    ESP_LOGI("LED", "Blinking for %d ms", blink_delay);
 
-                    // Gradually increase the blinking frequency
-                    blink_delay -= 50; // Decrease delay to increase frequency
-                    if (blink_delay <= 200)
-                    { // Threshold: 5 Hz blinking (200 ms period)
-                        blink_delay = 200;
-                        led_message_t ack = {.command = BLINK_START};
-                        xQueueSend(ack_queue, &ack, portMAX_DELAY); // Send acknowledgment
-                        break;
+                    if (is_decreasing)
+                    {
+                        // Gradually increase the blinking frequency
+                        blink_delay -= decrease_blink_duration; // Decrease delay to increase frequency
+
+                        // if finished decreasing, set the current ticks time, then check against extra blink duration
+                        if (blink_delay <= min_blink_period)
+                        { 
+                            blink_delay = min_blink_period;
+                            extra_blink_dur_ticker = xTaskGetTickCount();
+                            is_decreasing = false;
+                            ESP_LOGI("LED", "Finished decreasing, starting extra blink duration");
+                        }
+                    }
+                    else
+                    {
+                        if (xTaskGetTickCount() - extra_blink_dur_ticker >= extra_blink_dur_ticker_timeout)
+                        {
+                            ESP_LOGI("LED", "Finished extra blink duration, sending ack message");
+                            led_message_t ack = {.command = BLINK_START};
+                            xQueueSend(ack_queue, &ack, portMAX_DELAY); // Send acknowledgment
+                            break;
+                        }
                     }
                 }
             }
 
-            //This is really only reached if we are in an idle state and we receive a stop command
+            // This is really only reached if we are in an idle state and we receive a stop command
             if (msg.command == STROBE_STOP)
             {
                 ledc_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
@@ -107,8 +125,8 @@ void strobe_led_task(void *param)
     }
 }
 
-// SemaphoreHandle_t ledc_fade_end_sem;
 
+// SemaphoreHandle_t ledc_fade_end_sem;
 // use binary semaphore here to wait for the fade to finish
 // https://www.youtube.com/watch?v=5JcMtbA9QEE&t=3s
 // ISRs are the perfect place to use semaphores like this since they kinda work like mini signals telling the main thread

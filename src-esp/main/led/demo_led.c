@@ -25,7 +25,7 @@ void stop_strobe()
 
 void start_blink()
 {
-    ESP_LOGI("LED", "Starting blinking effect", );
+    ESP_LOGI("LED", "Starting blinking effect");
     led_message_t msg = {.command = BLINK_START};
     xQueueSend(command_queue, &msg, portMAX_DELAY);
 
@@ -47,7 +47,7 @@ void app_main()
     xTaskCreate(strobe_led_task, "strobe_led_task", 2048, NULL, 5, NULL);
 
     start_strobe();                         // Start the strobe effect
-    vTaskDelay(10000 / portTICK_PERIOD_MS); // Strobe for 10 seconds
+    vTaskDelay(3500 / portTICK_PERIOD_MS); // Strobe for 10 seconds
     stop_strobe();                          // Stop the strobe effect and wait for fade to end
 
     start_blink(1000); // Start the blinking effect with an initial period of 1000 ms

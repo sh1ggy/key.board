@@ -9,11 +9,11 @@
 #include "esp_err.h"
 
 #define LED_GPIO_PIN GPIO_NUM_18 // Define the GPIO pin where the LED is connected
-#define TOTAL_BLINK_TIME 2000
+#define EXTRA_BLINK_DURATION 2000 // Duration that the blink should go for after decreasing constantly
 #define FADE_TIME 500
 #define SOLID_COLOR_DUTY 4000
 #define FADE_MAX_DUTY 4000
-// #define FADE_MAX_DUTY 8191
+#define FADE_MAX_DUTY 8191
 
 typedef enum {
     STROBE_START,

@@ -29,7 +29,8 @@
         "cards.h": "c",
         "rc522.h": "c",
         "rfid.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "keydot_led.h": "c"
     },
     "idf.toolsPathWin": "C:/Espressif",
     "idf.espIdfPathWin": "C:/Espressif/frameworks/esp-idf-v5.0.6"

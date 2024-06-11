@@ -9,9 +9,12 @@
 - [x] Listen for RFID
 - [x] Conditionally compile either mock, mfrc522 or pn532
 - [ ] add global error event listener
-- [ ] Manual program button entry ( us gpio 0)
+- [ ] Manual program button entry
 - [ ] mark etchings on the enclosure
     - Scan here
+- [ ] A working version with enclosure and lights
+- [ ] Make button for going into scanner mode and disable uart for regular use.
+- [ ] Task for monitorign a reset button
 
 
 ### Future

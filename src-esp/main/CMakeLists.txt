@@ -13,8 +13,8 @@ endif()
 
 message("Using rfid impl: " ${RFID_SRC})
 
-# set(MAIN_FILE "tusb_hid_example_main.c")
-set(MAIN_FILE "led/demo_led.c")
+set(MAIN_FILE "tusb_hid_example_main.c")
+# set(MAIN_FILE "led/demo_led.c")
 
 
 idf_component_register(

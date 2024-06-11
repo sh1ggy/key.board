@@ -18,7 +18,8 @@
 typedef enum {
     STROBE_START,
     STROBE_STOP,
-    BLINK_START
+    BLINK_START,
+    LED_COMMANDS_END
 } led_command_t;
 
 typedef struct {

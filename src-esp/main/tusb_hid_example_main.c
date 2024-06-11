@@ -523,7 +523,30 @@ void app_main(void)
         }
         case APP_STATE_SCANNED_CARD:
         {
+
             // Test if trigger is pressed
+            // Send a blink command
+            xQueueReset(ack_queue); //Maybe not needed
+            led_message_t send_msg{.command = BLINK_START};
+            xQueueSend(command_queue, &send_msg, 0);
+
+            while (1)
+            {
+                // If the gpio is high (trigger is pressed) or if we get a message from the queue
+                int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+                led_message_t msg;
+
+                if (!level)
+                {
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+                else if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START) {
+                    xQueueReceive(command_queue, &msg, 0); // Remove the command from the queue
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+            }
 
             break;
         }
@@ -551,6 +574,8 @@ void app_main(void)
                 else if (level)
                 {
                     ESP_LOGI(TAG, "Trigger button release, sending password");
+                    led_message_t send_msg{.command = STROBE_STOP};
+                    xQueueSend(command_queue, &send_msg, 0);
                     state = APP_STATE_APPLY_KEYSTROKES;
                     break;
                 }
@@ -562,6 +587,7 @@ void app_main(void)
                         ESP_LOGE(TAG, "QUEUE DID NOT RETURN IN TIME, UNKNOWN ERROR, going back to master");
                         xQueueReset(ack_queue);
                         state = APP_STATE_MASTER_MODE;
+                        // perhaps we should abort here instead
                         break;
                     }
                     // Delay for 10 ms
@@ -606,6 +632,13 @@ void app_main(void)
         case APP_STATE_SCANNER_MODE:
         {
             // Light strobe routine
+
+            ESP_LOGI("LED", "Starting strobe effect");
+            led_message_t msg = {.command = STROBE_START};
+            xQueueSend(command_queue, &msg, portMAX_DELAY);
+
+            // if button press is detected, we need to wait for the strobe to stop and move back to master
+
             break;
         }
         case APP_STATE_APPLY_KEYSTROKES:

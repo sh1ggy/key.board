@@ -14,6 +14,8 @@
   background-color: #292828;
 }
 
+/* https://stackoverflow.com/questions/17000562/removing-the-clear-and-reveal-password-icons-from-internet-explorer */
+/* This handles the IE cringe on windows, stops the browser from coming up with its own reveal and clear icons */
 input::-ms-reveal,
 input::-ms-clear {
       display: none;

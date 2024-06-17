@@ -16,7 +16,7 @@ void setup()
     ; // Do nothing if no serial port is opened (added for Arduinos based on ATMEGA32U4)
   Serial.println("Testing out connecting to SPI ");
   
-  SPI.begin(7, 11, 9, 5); // Init SPI bus
+  SPI.begin(7, 11, 9, 5); // Init SPI bus with custom gpio pin locations
   // SPI.begin(); // Init SPI bus
   Serial.println("Testing out connecting to mfrc");
   mfrc522.PCD_Init();                // Init MFRC522

@@ -46,7 +46,7 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
     - Create a merged file that merges all the commands into collect like seen in `merged.spec`, see `https://www.zacoding.com/en/post/pyinstaller-create-multiple-executables/` or https://pyinstaller.org/en/stable/spec-files.html#multipackage-bundles
 3. Run `bash pyinstaller --distpath ./dist single_merged.spec`
 4. Download the esptool binary for your OS from the [GitHub repo](https://github.com/espressif/esptool) under releases and drag it into the `src-tauri\bin\dist` folder
-5. Rename folder to match the OS tag using [this guide](https://tauri.app/v1/guides/building/sidecar/)
+5. Rename folder to match the OS tag, which includes running `rustc -Vv | grep host | cut -f2 -d' '` to get the host tag. See [here](https://tauri.app/v1/guides/building/sidecar/) for more details.
 - The executables need to be in the same folder otherwise you end up with error
 
 	```

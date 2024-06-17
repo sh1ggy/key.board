@@ -1,10 +1,29 @@
+set(USE_PN532 1)
+# set(USE_MRFC522 1)
+
+set(RFID_SRC "rfid/mock_rfid.cpp" )
+
+if(USE_PN532)
+    message("Using PN532")
+    set(RFID_SRC "rfid/pn532.c")
+elseif(USE_MRFC522)
+    message("Using MRFC522")
+    set(RFID_SRC "rfid/mfrc522.c")
+endif()
+
+message("Using rfid impl: " ${RFID_SRC})
+
+set(MAIN_FILE "tusb_hid_example_main.c")
+# set(MAIN_FILE "led/demo_led.c")
+
+
 idf_component_register(
-    SRCS "comms.c" "keyboard.c" "cards.c" "tusb_hid_example_main.c"
+    SRCS "comms.c" "keyboard.c" "cards.c" "util/profile.c" "led/keydot_led.c" ${RFID_SRC} ${MAIN_FILE}
     INCLUDE_DIRS "."
     # This is very important to build with nvs support
     # as shown here you dont need to add this to `components` in root cmake if this is here
     # https://docs.espressif.com/projects/esp-idf/en/v5.2/esp32s2/api-guides/build-system.html#optional-project-variables
-    PRIV_REQUIRES driver nvs_flash esp-idf-rc522 json esp_timer
+    PRIV_REQUIRES driver nvs_flash esp-idf-rc522 json esp_timer esp32-pn532
     )
 
     # Create a NVS image from the contents of the `nvs_data` CSV file
@@ -28,7 +47,6 @@ if(CMAKE_HOST_WIN32)
 else()
     message("Dumping sample nvs")
     nvs_create_partition_image(nvs ../data.csv FLASH_IN_PROJECT)
-
 endif()
 
-message("Sup")
+message("Done running custom Cmake config")

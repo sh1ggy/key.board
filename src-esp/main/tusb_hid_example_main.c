@@ -7,17 +7,22 @@
 #include "constants.h"
 #include "cards.h"
 #include "comms.h"
+#include "main.h"
+#include "rfid/rfid.h"
+#include "util/profile.h"
+#include "led/keydot_led.h"
 
 #include <inttypes.h>
 
 #include <stdlib.h>
-#include "esp_log.h"
+#include <esp_log.h>
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "tinyusb.h"
 
 #ifdef LOG_DETAILS
-#include "esp_chip_info.h"
+#include "util/profile.h"
 #endif
 
 #include "tusb_cdc_acm.h"
@@ -26,12 +31,13 @@
 
 #include "class/hid/hid_device.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_timer.h"
-#include "rc522.h"
 #include "cJSON.h"
+
 // https://wokwi.com/projects/395704595737846785
 
 /********* Application ***************/
@@ -117,39 +123,9 @@ static void app_send_hid_demo(void)
     uint8_t msg[6] = "beans";
     // This sends nothing
     tud_hid_report(HID_ITF_PROTOCOL_NONE, &msg, 6);
-
-    ESP_LOGI(TAG, "Sending payload optimised cum");
-
-    char keyboard_msg[] = "cum";
-    int len = strlen(keyboard_msg);
-
-    memset(keycode, 0, sizeof(keycode));
-
-    for (size_t i = 0; i < len; i++)
-    {
-        Keyboard_payload_t payload = ascii_2_keyboard_payload(keyboard_msg[i]);
-        keycode[i] = payload.keycode[0];
-    }
-
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
-    vTaskDelay(pdMS_TO_TICKS(5));
-    tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, NULL);
 }
 
 /*******KEYDOTBOARD APP ******/
-typedef enum
-{
-    APP_STATE_BOOT,
-    APP_STATE_SCANNER_MODE,
-    APP_STATE_MASTER_MODE,
-    APP_STATE_APPLY_KEYSTROKES,
-    APP_STATE_SEND_PASSWORD_DB,
-    APP_STATE_SEND_RFID,
-    APP_STATE_SAVE_NEW_CARD,
-    APP_STATE_CLEAR_CARD,
-    APP_STATE_CLEAR_DB,
-    APP_STATE_MAX
-} APP_STATE;
 
 typedef enum
 {
@@ -187,15 +163,14 @@ static const char *RESPONSE_TYPE_STR[RESPONSE_TYPE_MAX] =
 
 APP_STATE state = APP_STATE_BOOT;
 nvs_handle_t storage_handle;
-rc522_handle_t scanner;
 RFID_DB_t rfid_db;
 
 uint64_t currently_scanned_tag = 0;
 NEW_CARD_t current_new_card;
-char currently_scanned_pass[MAX_PASS_SIZE];
+int currently_scanned_tag_index = -1;
 int current_clear_card_index;
 
-void get_pass_from_id(size_t in_selected_id, char *out_pass)
+esp_err_t get_pass_from_id(size_t in_selected_id, char *out_pass)
 {
     // key cannot be longer than 15
     char password_key[16];
@@ -209,59 +184,19 @@ void get_pass_from_id(size_t in_selected_id, char *out_pass)
     if (err == ESP_ERR_NVS_NOT_FOUND)
     {
         ESP_LOGE(TAG, "Password for key '%s' not found in NVS\n", password_key);
-        return;
+        return err;
     }
-    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+    if (err != ESP_OK)
+    {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+        return err;
+    }
 
     ESP_LOGI(TAG, "Password value:%s, length:%d", out_pass, str_len);
-    // TODO return esp error value or make own enum for error handling
+
+    return ESP_OK;
 }
 
-static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
-{
-    rc522_event_data_t *data = (rc522_event_data_t *)event_data;
-
-    switch (event_id)
-    {
-    case RC522_EVENT_TAG_SCANNED:
-    {
-        rc522_tag_t *tag = (rc522_tag_t *)data->ptr;
-        ESP_LOGI(TAG, "Tag scanned (sn: %" PRIu64 ")", tag->serial_number);
-
-        switch (state)
-        {
-        case APP_STATE_SCANNER_MODE:
-        {
-            currently_scanned_tag = tag->serial_number;
-            state = APP_STATE_SEND_RFID;
-            break;
-        }
-        case APP_STATE_MASTER_MODE:
-        {
-            // Check if the tag is in the database
-            for (size_t i = 0; i < rfid_db.total_rfid_tags; i++)
-            {
-                if (rfid_db.serial_number_buffer[i] == tag->serial_number)
-                {
-                    char outpass[MAX_PASS_SIZE];
-                    get_pass_from_id(i, outpass);
-                    strcpy(currently_scanned_pass, outpass);
-                    // TODO: remove pass logging
-                    ESP_LOGI(TAG, "Found tag %" PRIu64 " in db, pass: %s", rfid_db.serial_number_buffer[i], outpass);
-                    state = APP_STATE_APPLY_KEYSTROKES;
-                    return;
-                }
-            }
-            ESP_LOGE(TAG, "Couldnt find Found tag %" PRIu64 " in db", tag->serial_number);
-        }
-
-        default:
-            break;
-        }
-    }
-    break;
-    }
-}
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/performance/size.html#idf-py-size
 // This also helps https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/mem_alloc.html#_CPPv425heap_caps_print_heap_info8uint32_t
 
@@ -320,16 +255,6 @@ void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
         // MAKE SURE WE RESET THE BUFFER AFTER WE HAVE HANDLED THE REQUEST
         json_buf_ptr = json_buf;
     }
-
-    // cJSON *root = cJSON_Parse((char *)buf);
-    // if (root == NULL)
-    // {
-    //     ESP_LOGE(TAG, "This is NOT valid json: %s", buf);
-    // }
-    // else
-    // {
-    //     handle_request(root);
-    // }
     cJSON_Delete(root);
     last_payload_time_us = time_us;
 }
@@ -428,6 +353,13 @@ void wait_for_hid_ready()
 
 void send_password_keystrokes()
 {
+    char currently_scanned_pass[MAX_PASS_SIZE];
+    esp_err_t err = get_pass_from_id(currently_scanned_tag_index, currently_scanned_pass);
+    if (err != ESP_OK)
+    {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+        return;
+    }
 
     // release all keys between two characters; otherwise two identical
     // consecutive characters are treated as just one key press
@@ -480,69 +412,14 @@ void send_password_keystrokes()
     ESP_LOGI(TAG, "Password sent");
 }
 
-#ifdef LOG_DETAILS
-esp_chip_info_t chip_info;
-
-void print_memory_sizes(void)
-{
-
-    // uint32_t flash_size = ESP.getFlashChipSize();
-    // printf("--------> Flash size: %PRIu32 bytes\n", flash_size);
-
-    // Flash Size
-    const esp_partition_t *partition = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
-    if (partition)
-    {
-        ESP_LOGI("Memory Info", "Found App partition");
-        ESP_LOGI("Memory Info", "Partition Label: %s", partition->label);
-        ESP_LOGI("Memory Info", "Partition Type: %d", partition->type);
-        ESP_LOGI("Memory Info", "Partition Subtype: %d", partition->subtype);
-        ESP_LOGI("Memory Info", "Partition Size: %" PRIu32 " bytes", partition->size);
-    }
-    else
-    {
-        ESP_LOGE("Memory Info", "Failed to get the App partition");
-    }
-
-    // Total SPIRAM (PSRAM) Size
-    size_t spiram_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-    if (spiram_size)
-    {
-        ESP_LOGI("Memory Info", "PSRAM Size: %zu bytes", spiram_size);
-    }
-    else
-    {
-        ESP_LOGI("Memory Info", "No PSRAM detected");
-    }
-
-    uint32_t total_internal_memory = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
-    uint32_t free_internal_memory = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    uint32_t largest_contig_internal_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-
-    ESP_LOGI("Memory Info", "Total DRAM (internal memory): %" PRIu32 " bytes", total_internal_memory);
-    ESP_LOGI("Memory Info", "Free DRAM (internal memory): %" PRIu32 " bytes", free_internal_memory);
-    ESP_LOGI("Memory Info", "Largest free contiguous DRAM block: %" PRIu32 " bytes", largest_contig_internal_block);
-}
-
-void print_system_info_task(void *pvParameters)
-{
-    while (1)
-    {
-        size_t free_memory = esp_get_free_heap_size();
-        printf("Free Memory: %d bytes\n", free_memory);
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
 void print_state_cb(void *arg)
 {
-    ESP_LOGI(TAG, "State: %d", state);
+    ESP_LOGI(TAG, "State: %d, Currently Scanned: %d", state, currently_scanned_tag_index);
 }
-#endif
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "Starting Keydotboard");
     const gpio_config_t trigger_button_config = {
         .pin_bit_mask = TRIGGER_BUTTON_BIT_MASK,
         .mode = GPIO_MODE_INPUT,
@@ -553,22 +430,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(gpio_config(&trigger_button_config));
 
-#ifdef LOG_DETAILS
-    esp_chip_info(&chip_info);
-    print_memory_sizes();
-
-    const esp_timer_create_args_t periodic_timer_args = {
-        .callback = &print_state_cb,
-        /* name is optional, but may help identify the timer when debugging */
-        .name = "periodic state print"
-        // By default the timer is in task callback mode
-    };
-
-    esp_timer_handle_t periodic_timer;
-    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-    // This is in microseconds
-    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL));
-#endif
+    led_init();
 
     initialise_keyboard();
 
@@ -611,18 +473,24 @@ void app_main(void)
 
     init_rfid_tags();
 
-    rc522_config_t config = {
-        .spi.host = SPI3_HOST,
-        .spi.miso_gpio = GPIO_NUM_11,
-        .spi.mosi_gpio = GPIO_NUM_9,
-        .spi.sck_gpio = GPIO_NUM_7,
-        .spi.sda_gpio = GPIO_NUM_5,
+    setup_rfid_reader();
+
+#ifdef LOG_DETAILS
+    esp_chip_info(&chip_info);
+    print_memory_sizes();
+
+    const esp_timer_create_args_t periodic_timer_args = {
+        .callback = &print_state_cb,
+        /* name is optional, but may help identify the timer when debugging */
+        .name = "periodic state print"
+        // By default the timer is in task callback mode
     };
-    // TODO: Add error handling
-    rc522_create(&config, &scanner);
-    rc522_register_events(scanner, RC522_EVENT_ANY, rc522_handler, NULL);
-    // Dont need to pause the scanner in whatever mode we operate under
-    rc522_start(scanner);
+
+    esp_timer_handle_t periodic_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    // This is in microseconds
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, STATE_PRINT_INTERVAL_US));
+#endif
 
     state = APP_STATE_MASTER_MODE;
 
@@ -638,7 +506,7 @@ void app_main(void)
             {
                 char outpass[MAX_PASS_SIZE];
                 ESP_LOGI(TAG, "Got trigger");
-                get_pass_from_id(1, outpass);
+                get_pass_from_id(0, outpass);
 
                 // For some reason (composite device I think) tud dismounts after sleep
                 // TODO: Invetigate this with base HID example that doesnt do this
@@ -653,6 +521,80 @@ void app_main(void)
                 send_serial_msg();
             }
 
+            break;
+        }
+        case APP_STATE_SCANNED_CARD:
+        {
+
+            // Test if trigger is pressed
+            // Send a blink command
+            xQueueReset(ack_queue); // Maybe not needed
+            led_message_t send_msg = {.command = BLINK_START};
+            xQueueSend(command_queue, &send_msg, 0);
+
+            while (1)
+            {
+                // If the gpio is high (trigger is pressed) or if we get a message from the queue
+                int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+                led_message_t msg;
+
+                if (!level)
+                {
+                    state = APP_STATE_TRIGGER_BUTTON_PRESSED;
+                    break;
+                }
+                else if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)
+                {
+                    xQueueReceive(command_queue, &msg, 0); // Remove the command from the queue
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+
+            break;
+        }
+        case APP_STATE_TRIGGER_BUTTON_PRESSED:
+        {
+            uint32_t timeout_ticker = xTaskGetTickCount();
+            const TickType_t timeout_ticker_timeout = 20000 / portTICK_PERIOD_MS; // 20 seconds
+            while (1)
+            {
+                led_message_t msg;
+                int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+                // TODO: send spaces through the keyboard while doing this (might need to be a task)
+
+                // queue peek doesnt block, it returns true if the queue is not empty, use receive to block and extract the value out of the queue
+                if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)
+                {
+                    xQueueReceive(command_queue, &msg, 0); // Remove the command from the queue
+                    ESP_LOGI(TAG, "Trigger button release and blink timeout, going back to master");
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+                else if (level)
+                {
+                    ESP_LOGI(TAG, "Trigger button release, sending password");
+                    led_message_t send_msg = {.command = STROBE_STOP};
+                    xQueueSend(command_queue, &send_msg, 0);
+                    state = APP_STATE_APPLY_KEYSTROKES;
+                    break;
+                }
+                else
+                {
+                    // Check if we have reached the timeout
+                    if (xTaskGetTickCount() - timeout_ticker >= timeout_ticker_timeout)
+                    {
+                        ESP_LOGE(TAG, "QUEUE DID NOT RETURN IN TIME, UNKNOWN ERROR, going back to master");
+                        xQueueReset(ack_queue);
+                        state = APP_STATE_MASTER_MODE;
+                        // perhaps we should abort here instead
+                        break;
+                    }
+                    // Delay for 10 ms
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+            }
             break;
         }
         case APP_STATE_SEND_PASSWORD_DB:
@@ -691,6 +633,38 @@ void app_main(void)
         case APP_STATE_SCANNER_MODE:
         {
             // Light strobe routine
+
+            ESP_LOGI("LED", "Starting strobe effect");
+            led_message_t msg = {.command = STROBE_START};
+            xQueueSend(command_queue, &msg, portMAX_DELAY);
+
+            // if button press is detected, we need to wait for the strobe to stop and move back to master
+            while (state == APP_STATE_SCANNER_MODE)
+            {
+                if (xQueuePeek(ack_queue, &msg, 0) && msg.command == STROBE_STOP)
+                {
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
+            }
+
+            led_message_t stop_msg = {.command = STROBE_STOP};
+            xQueueSend(command_queue, &stop_msg, portMAX_DELAY);
+
+            // Wait for acknowledgment
+            led_message_t ack;
+            xQueueReceive(ack_queue, &ack, portMAX_DELAY);
+            if (ack.command == STROBE_STOP)
+            {
+                ESP_LOGI("LED", "Strobe stopped and fade ended");
+            }
+            else
+            {
+                // Error state, abort
+                abort();
+            }
+
             break;
         }
         case APP_STATE_APPLY_KEYSTROKES:
@@ -751,9 +725,11 @@ void app_main(void)
         }
 
         default:
+            ESP_LOGI(TAG, "State not implemented: %d, going to MASTER", state);
+            state = APP_STATE_MASTER_MODE;
             break;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
     }
 }

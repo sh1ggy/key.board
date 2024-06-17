@@ -39,6 +39,13 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 **Password Encryption**
 - Currently passwords are not encrypted and are instead stored on the partition in a way that if someone was reading off your ESP32's partition they would be able to obtain the passwords that you synced to the device.
 
+#### Pn532
+The Pn532 is a very versatile chip however it is slightly more expensive in mass and uses more power. 
+Total power used when using chips
+- RC522: ~24mA
+- PN532: ~95mA
+This may however simply be the result of using the chip in HSU mode, which is the only modern library I could find for this chip.
+
 ## Development
 ### Process for Building ESP32 Binaries 
 1. Run `git pull --recurse-submodules` to pull the esp-idf repository
@@ -82,13 +89,12 @@ This seems to be a common issue relating to inconsistency in some ESP modules wh
 - [x] Rewrite create to be the only screen that subscribes to the rfid alert
 - [x] Send Newcard struct
 - [ ] error handling to handle disconnect
-- [ ] Tune keyboard timings
+- [x] Tune keyboard timings
 - [ ] BIG EPIC BUTTON
 	- Hold down key, while held down keep sending spaces bars and stuff
 	- On release send the actual password
 - [ ] Indicator Leds
 - [ ] Solder onto perf board
-	- [ ]
 
 
 - [ ] rewrite load binary page to function as a way to load the first time binary.

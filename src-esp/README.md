@@ -7,15 +7,25 @@
     - Track this issue https://github.com/espressif/esp-idf/issues/13240
 - [x] Render cards 
 - [x] Listen for RFID
+- [x] Conditionally compile either mock, mfrc522 or pn532
 - [ ] add global error event listener
-- [ ] Manual program button entry ( us gpio 0)
+- [ ] Manual program button entry
 - [ ] mark etchings on the enclosure
     - Scan here
+- [ ] A working version with enclosure and lights
+- [ ] Make button for going into scanner mode and disable uart for regular use.
+- [ ] Task for monitorign a reset button
 
 
 ### Future
 - [x] Reach feature parity with arduino version
-- [ ] Fix build-workflow to stop erroring
+- [x] Fix build-workflow to stop erroring
+#### Optimizations
+- [ ] Switch from a state driven paradigm to a event driven paradigm, nothing mutates the state, u just use queues in a bunch of tasks waiting for their time to shine
+- [ ] Put the esp to sleep when PC is sleeping, wake esp AND pc up on button press
+- [ ] rewrite mfrc522 module to use (this)[https://github.com/benklop/esp-idf-mfrc522] instead. Test with blanket repo first, then extend similar to mock_rfid.cpp
+- [ ] Switch to a more appropriate actor model, all event handlers, tasks, timers and ISRs should be actors. 
+    The main loop will receive these events in the nested switch and depending on the switched state, react accordingly. Right now the state is in concurrent access. 
 
 ### Not doing
 - [ ] Send and recieve HID data from rfid reader
@@ -23,10 +33,20 @@
     - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
     - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
     - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
+- [ ] Figure out how to seutp unit tests and separate components instead of using h files for mocks
 
 ## Learns
 - Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)
 - Run `idf.py partition-table` to get the partition table deets
+- [https://github.com/SensorsIot/Morse-Trainer/blob/master/MTR_V3/MTR_V3/Coordinator.h#L135](Good demo for tasks), found on [this video](https://youtu.be/684KSAvYbw4?si=wxXziabIUMjCr8fs&t=1210)
+- The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
+    - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
+    - `while true; do idf.py flash -p /dev/ttyACM0; done`
+- tracking sdkconfig with git is rough especially between esp-idf versions, regenerate per requirement with following settings
+    - TinyUsb enable cdc
+    - TinyUsb enable hid
+    - enable serial console through custom uart, uart0 or cdc but using cdc diallows tinyusb components
+
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 
 similar to the teensy. It has a divider, a hardware counter frequency, a max count and an alarm (ISR callback);

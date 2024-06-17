@@ -430,6 +430,8 @@ void app_main(void)
 
     ESP_ERROR_CHECK(gpio_config(&trigger_button_config));
 
+    led_init();
+
     initialise_keyboard();
 
     const tinyusb_config_cdcacm_t acm_cfg = {
@@ -526,8 +528,8 @@ void app_main(void)
 
             // Test if trigger is pressed
             // Send a blink command
-            xQueueReset(ack_queue); //Maybe not needed
-            led_message_t send_msg{.command = BLINK_START};
+            xQueueReset(ack_queue); // Maybe not needed
+            led_message_t send_msg = {.command = BLINK_START};
             xQueueSend(command_queue, &send_msg, 0);
 
             while (1)
@@ -538,30 +540,29 @@ void app_main(void)
 
                 if (!level)
                 {
-                    state = APP_STATE_MASTER_MODE;
+                    state = APP_STATE_TRIGGER_BUTTON_PRESSED;
                     break;
                 }
-                else if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START) {
+                else if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)
+                {
                     xQueueReceive(command_queue, &msg, 0); // Remove the command from the queue
                     state = APP_STATE_MASTER_MODE;
                     break;
                 }
+                vTaskDelay(pdMS_TO_TICKS(10));
             }
 
             break;
         }
         case APP_STATE_TRIGGER_BUTTON_PRESSED:
         {
-            // Send a blink command
-            led_message_t send_msg{.command = BLINK_START};
-            xQueueSend(command_queue, &send_msg, 0);
-
             uint32_t timeout_ticker = xTaskGetTickCount();
             const TickType_t timeout_ticker_timeout = 20000 / portTICK_PERIOD_MS; // 20 seconds
             while (1)
             {
                 led_message_t msg;
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+                // TODO: send spaces through the keyboard while doing this (might need to be a task)
 
                 // queue peek doesnt block, it returns true if the queue is not empty, use receive to block and extract the value out of the queue
                 if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)
@@ -574,7 +575,7 @@ void app_main(void)
                 else if (level)
                 {
                     ESP_LOGI(TAG, "Trigger button release, sending password");
-                    led_message_t send_msg{.command = STROBE_STOP};
+                    led_message_t send_msg = {.command = STROBE_STOP};
                     xQueueSend(command_queue, &send_msg, 0);
                     state = APP_STATE_APPLY_KEYSTROKES;
                     break;
@@ -638,6 +639,31 @@ void app_main(void)
             xQueueSend(command_queue, &msg, portMAX_DELAY);
 
             // if button press is detected, we need to wait for the strobe to stop and move back to master
+            while (state == APP_STATE_SCANNER_MODE)
+            {
+                if (xQueuePeek(ack_queue, &msg, 0) && msg.command == STROBE_STOP)
+                {
+                    state = APP_STATE_MASTER_MODE;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
+            }
+
+            led_message_t stop_msg = {.command = STROBE_STOP};
+            xQueueSend(command_queue, &stop_msg, portMAX_DELAY);
+
+            // Wait for acknowledgment
+            led_message_t ack;
+            xQueueReceive(ack_queue, &ack, portMAX_DELAY);
+            if (ack.command == STROBE_STOP)
+            {
+                ESP_LOGI("LED", "Strobe stopped and fade ended");
+            }
+            else
+            {
+                // Error state, abort
+                abort();
+            }
 
             break;
         }

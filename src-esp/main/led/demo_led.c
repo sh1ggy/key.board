@@ -42,10 +42,6 @@ void app_main()
 {
     led_init();
 
-    command_queue = xQueueCreate(2, sizeof(led_message_t));
-    ack_queue = xQueueCreate(1, sizeof(led_message_t)); // Acknowledgment queue
-    xTaskCreate(strobe_led_task, "strobe_led_task", 2048, NULL, 5, NULL);
-
     start_strobe();                         // Start the strobe effect
     vTaskDelay(3500 / portTICK_PERIOD_MS); // Strobe for 10 seconds
     stop_strobe();                          // Stop the strobe effect and wait for fade to end

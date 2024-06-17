@@ -33,6 +33,11 @@ void led_init()
 
     ledc_fade_func_install(0);
 
+    command_queue = xQueueCreate(2, sizeof(led_message_t));
+    ack_queue = xQueueCreate(1, sizeof(led_message_t)); // Acknowledgment queue
+
+    xTaskCreate(strobe_led_task, "strobe_led_task", 2048, NULL, 5, NULL);
+
     // ledc_cb_register(ledc_channel.speed_mode, ledc_channel.channel, cb_ledc_fade_end_event, (void *)NULL);
 }
 

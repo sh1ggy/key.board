@@ -128,3 +128,12 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
 {
 }
+
+void wait_for_hid_ready()
+{
+    while (!tud_hid_ready())
+    {
+        ESP_LOGE(TAG, "HID Interface not ready");
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}

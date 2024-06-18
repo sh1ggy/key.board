@@ -342,15 +342,6 @@ void send_serial_msg()
 // https://electronics.stackexchange.com/questions/609090/stm32-usb-hid-keyboard-skipping-key-presses
 //  These both show that the host controls when it wants to accept a HUD report, so sending more meaninglessly does nothing.
 
-void wait_for_hid_ready()
-{
-    while (!tud_hid_ready())
-    {
-        ESP_LOGE(TAG, "HID Interface not ready");
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
 void send_password_keystrokes()
 {
     char currently_scanned_pass[MAX_PASS_SIZE];
@@ -500,8 +491,8 @@ void app_main(void)
         {
         case APP_STATE_MASTER_MODE:
         {
-            // if (tud_mounted())
             int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+#ifdef LOG_DETAILS
             if (!level)
             {
                 char outpass[MAX_PASS_SIZE];
@@ -520,6 +511,7 @@ void app_main(void)
                 app_send_hid_demo();
                 send_serial_msg();
             }
+#endif
 
             break;
         }
@@ -562,7 +554,10 @@ void app_main(void)
             {
                 led_message_t msg;
                 int level = gpio_get_level(TRIGGER_BUTTON_PIN);
-                // TODO: send spaces through the keyboard while doing this (might need to be a task)
+                // This might need to be a task but should be fine
+                wait_for_hid_ready();
+                uint8_t keycode[6] = {HID_KEY_SPACE};
+                tud_hid_keyboard_report(HID_ITF_PROTOCOL_KEYBOARD, 0, keycode);
 
                 // queue peek doesnt block, it returns true if the queue is not empty, use receive to block and extract the value out of the queue
                 if (xQueuePeek(ack_queue, &msg, 0) && msg.command == BLINK_START)

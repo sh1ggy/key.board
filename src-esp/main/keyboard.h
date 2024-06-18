@@ -24,3 +24,5 @@ typedef enum
 void initialise_keyboard();
 
 Keyboard_payload_t ascii_2_keyboard_payload(char chr);
+
+void wait_for_hid_ready();

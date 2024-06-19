@@ -9,6 +9,9 @@ static const char *TAG = "keydot";
 #define TRIGGER_BUTTON_PIN GPIO_NUM_39
 #define TRIGGER_BUTTON_BIT_MASK (1ULL << TRIGGER_BUTTON_PIN)
 
+#define PROGRAMMING_MODE_PIN GPIO_NUM_36
+#define PROGRAMMING_MODE_BIT_MASK (1ULL << PROGRAMMING_MODE_PIN)
+
 #define LED_PIN GPIO_NUM_18
 #define SOLID_COLOR_DUTY 4000
 
@@ -20,3 +23,5 @@ static const char *TAG = "keydot";
 #define SCANNED_CARD_EXPIRY_MS 5000
 
 // #define LOG_DETAILS
+
+#define DEMO_BUTTON_ENABLED

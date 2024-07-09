@@ -30,7 +30,8 @@
         "rc522.h": "c",
         "rfid.h": "c",
         "stdlib.h": "c",
-        "keydot_led.h": "c"
+        "keydot_led.h": "c",
+        "keyboard.h": "c"
     },
     "idf.toolsPathWin": "C:/Espressif",
     "idf.espIdfPathWin": "C:/Espressif/frameworks/esp-idf-v5.0.6"

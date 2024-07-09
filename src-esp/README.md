@@ -14,6 +14,7 @@
 - [ ] A working version with enclosure and lights
 - [ ] Make button for going into scanner mode and disable uart for regular use.
 - [ ] Task for monitorign a reset button
+- [ ] On navigate away, disconnect the port
 
 
 ### Future
@@ -45,6 +46,7 @@
     - TinyUsb enable cdc
     - TinyUsb enable hid
     - enable serial console through custom uart, uart0 or cdc but using cdc diallows tinyusb components
+- USB tree view is a good application for viewing all the details about the usb 
 
 ### Timers
 - The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 

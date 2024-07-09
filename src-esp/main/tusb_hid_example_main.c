@@ -322,8 +322,8 @@ void send_serial_msg()
     char msg[] = "Hello World!\n";
     size_t len = strlen(msg);
 
-    size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC_DATA, (uint8_t *)msg, len);
-    esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC_DATA, 0);
+    size_t write_size = tinyusb_cdcacm_write_queue(ITF_NUM_CDC, (uint8_t *)msg, len);
+    esp_err_t err = tinyusb_cdcacm_write_flush(ITF_NUM_CDC, 0);
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
@@ -421,21 +421,33 @@ void app_main(void)
 
     ESP_ERROR_CHECK(gpio_config(&trigger_button_config));
 
+    const gpio_config_t programming_button_config = {
+        .pin_bit_mask = PROGRAMMING_MODE_BIT_MASK,
+        .mode = GPIO_MODE_INPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pull_up_en = true,
+        .pull_down_en = false,
+    };
+
+    ESP_ERROR_CHECK(gpio_config(&programming_button_config));
+
     led_init();
 
     initialise_keyboard();
 
     const tinyusb_config_cdcacm_t acm_cfg = {
         .usb_dev = TINYUSB_USBDEV_0,
-        .cdc_port = TINYUSB_CDC_ACM_0,
+        // This actually does mean itf (interface)
+        .cdc_port = ITF_NUM_CDC,
         .rx_unread_buf_sz = 64,
         .callback_rx = &tinyusb_cdc_rx_callback,
         // .callback_rx = NULL,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
         .callback_line_coding_changed = NULL};
+    // tusb_cdc_acm_deinit(ITF_NUM_CDC);
     // tinyusb_config_cdcacm_t acm_cfg = {0}; // the configuration uses default values, these are kinda bad and cause the device to stop working after sleep
-    ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
+    // ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
     // This allows for usb debugging over cdc
     // esp_tusb_init_console(TINYUSB_CDC_ACM_0);
 
@@ -491,8 +503,26 @@ void app_main(void)
         {
         case APP_STATE_MASTER_MODE:
         {
+
+            int programming_mode_level = gpio_get_level(PROGRAMMING_MODE_PIN);
+
+            if (!programming_mode_level)
+            {
+                ESP_LOGI(TAG, "Starting scanner mode");
+                // Light strobe routine
+                ESP_LOGI("LED", "Starting strobe effect");
+                led_message_t msg = {.command = STROBE_START};
+                xQueueSend(command_queue, &msg, portMAX_DELAY);
+
+                state = APP_STATE_SCANNER_MODE;
+                // Initialise scanner by turning on serial
+                ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
+                // Need to wait here for a bit for the serial port to open
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+
+#ifdef DEMO_BUTTON_ENABLED
             int level = gpio_get_level(TRIGGER_BUTTON_PIN);
-#ifdef LOG_DETAILS
             if (!level)
             {
                 char outpass[MAX_PASS_SIZE];
@@ -511,6 +541,13 @@ void app_main(void)
                 app_send_hid_demo();
                 send_serial_msg();
             }
+#else
+            int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+            if (!level)
+            {
+                ESP_LOGI(TAG, "Got trigger without card womp womp");
+            }
+
 #endif
 
             break;
@@ -627,39 +664,32 @@ void app_main(void)
         }
         case APP_STATE_SCANNER_MODE:
         {
-            // Light strobe routine
-
-            ESP_LOGI("LED", "Starting strobe effect");
-            led_message_t msg = {.command = STROBE_START};
-            xQueueSend(command_queue, &msg, portMAX_DELAY);
-
             // if button press is detected, we need to wait for the strobe to stop and move back to master
-            while (state == APP_STATE_SCANNER_MODE)
+            int programming_mode_level = gpio_get_level(PROGRAMMING_MODE_PIN);
+            led_message_t msg;
+
+            if (!programming_mode_level)
             {
-                if (xQueuePeek(ack_queue, &msg, 0) && msg.command == STROBE_STOP)
+                ESP_LOGI(TAG, "Finished scanner mode, going back to master");
+
+                tusb_cdc_acm_deinit(ITF_NUM_CDC);
+                led_message_t stop_msg = {.command = STROBE_STOP};
+                xQueueSend(command_queue, &stop_msg, portMAX_DELAY);
+
+                // Wait for acknowledgment
+                led_message_t ack;
+                xQueueReceive(ack_queue, &ack, portMAX_DELAY);
+                if (ack.command == STROBE_STOP)
                 {
+                    ESP_LOGI("LED", "Strobe stopped and fade ended");
                     state = APP_STATE_MASTER_MODE;
-                    break;
                 }
-                vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_INTERVAL_MS));
+                else
+                {
+                    ESP_LOGE(TAG, "Error state in scanner mode, aborting");
+                    abort();
+                }
             }
-
-            led_message_t stop_msg = {.command = STROBE_STOP};
-            xQueueSend(command_queue, &stop_msg, portMAX_DELAY);
-
-            // Wait for acknowledgment
-            led_message_t ack;
-            xQueueReceive(ack_queue, &ack, portMAX_DELAY);
-            if (ack.command == STROBE_STOP)
-            {
-                ESP_LOGI("LED", "Strobe stopped and fade ended");
-            }
-            else
-            {
-                // Error state, abort
-                abort();
-            }
-
             break;
         }
         case APP_STATE_APPLY_KEYSTROKES:

@@ -16,8 +16,8 @@ pn532_t *pn532 = NULL;
 #define DEFAULT_TASK_STACK_SIZE (4 * 1024)
 #define UART_PORT 1
 #define BAUD_SETTING 4 // This is 115200
-#define TX_UART_PIN 11
-#define RX_UART_PIN 12
+#define TX_UART_PIN 9
+#define RX_UART_PIN 11
 #define MAX_RETRIES 15 // We dont want the user to wait longer than 1.5 seconds for a retry
 
 

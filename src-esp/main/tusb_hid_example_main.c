@@ -517,7 +517,7 @@ void app_main(void)
                 state = APP_STATE_SCANNER_MODE;
                 // Initialise scanner by turning on serial
                 ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
-                //Need to wait here for a bit for the serial port to open
+                // Need to wait here for a bit for the serial port to open
                 vTaskDelay(pdMS_TO_TICKS(100));
             }
 
@@ -541,6 +541,13 @@ void app_main(void)
                 app_send_hid_demo();
                 send_serial_msg();
             }
+#else
+            int level = gpio_get_level(TRIGGER_BUTTON_PIN);
+            if (!level)
+            {
+                ESP_LOGI(TAG, "Got trigger without card womp womp");
+            }
+
 #endif
 
             break;

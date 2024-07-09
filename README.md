@@ -67,7 +67,11 @@ This may however simply be the result of using the chip in HSU mode, which is th
 - manually change these pins in the menuconfig
 - Do note that if an ESP_ERROR_CHECK is thrown the esp will reset/reboot so do not be alarmed
 
-## Wiring layout for pushbutton 
+## Hardware 
+### Svg for laser cutting
+- TODO: extract from lightburn file
+
+### Wiring layout for pushbutton 
 - It is better to use a pullup configuration for the pushbutton. Meaning it will output 1 normally, when pulled down to ground, it will output 0. (This is because the ESP32 has an internal pullup resistor that has been enabled). [link](https://esp32.com/viewtopic.php?t=6478)
 - This is better so that you dont export V_BUS out and so it doesnt get shorted to ground crashing your board.
 
@@ -76,9 +80,6 @@ This may however simply be the result of using the chip in HSU mode, which is th
 
 ###  Learns with wiring
 - One thing I learnt the hard way by killing an esp32-s2 mini (-$5) is to isolate your breadboard to 1 project at a time. There was current going back into the old esp that was there because of the power rails. Luckily second time I had a usb power meter the second time.
-
-### Rust learns 
-#### Rust Serial Port
 
 
 ## References

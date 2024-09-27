@@ -1,3 +1,9 @@
 [submodule "src-tauri/bin/esp-idf"]
 	path = src-tauri/bin/esp-idf
 	url = git@github.com:ProPablo/esp-idf.git
+[submodule "src-esp/components/esp-idf-rc522"]
+	path = src-esp/components/esp-idf-rc522
+	url = git@github.com:abobija/esp-idf-rc522.git
+[submodule "src-esp/components/esp32-pn532"]
+	path = src-esp/components/esp32-pn532
+	url = git@github.com:revk/ESP32-PN532.git

@@ -1,33 +1,59 @@
-| Supported Targets | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- |
+# IDF Build version
 
-# TinyUSB Human Interface Device Example
+## TODO
+- [x] Add rfid reader lib
+- [x] Read preferences value from nvs 
+- [x] setup HID and CDC interfaces for printing to serial as well
+    - Track this issue https://github.com/espressif/esp-idf/issues/13240
+- [x] Render cards 
+- [x] Listen for RFID
+- [x] Conditionally compile either mock, mfrc522 or pn532
+- [ ] add global error event listener
+- [ ] mark etchings on the enclosure
+    - Scan here
+- [ ] A working version with enclosure and lights
+- [ ] Make button for going into scanner mode and disable uart for regular use.
+- [ ] Task for monitorign a reset button
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
 
-Human interface devices (HID) are one of the most common USB devices, it is implemented in various devices such as keyboards, mice, game controllers, sensors and alphanumeric display devices.
-In this example, we implement USB keyboard and mouse.
-Upon connection to USB host (PC), the example application will sent 'key a/A pressed & released' events and move mouse in a square trajectory. To send these HID reports again, press the BOOT button, that is present on most ESP development boards (GPIO0).
+### Future
+- [x] Reach feature parity with arduino version
+- [x] Fix build-workflow to stop erroring
+#### Optimizations
+- [ ] Switch from a state driven paradigm to a event driven paradigm, nothing mutates the state, u just use queues in a bunch of tasks waiting for their time to shine
+- [ ] Put the esp to sleep when PC is sleeping, wake esp AND pc up on button press
+- [ ] rewrite mfrc522 module to use (this)[https://github.com/benklop/esp-idf-mfrc522] instead. Test with blanket repo first, then extend similar to mock_rfid.cpp
+- [ ] Switch to a more appropriate actor model, all event handlers, tasks, timers and ISRs should be actors. 
+    The main loop will receive these events in the nested switch and depending on the switched state, react accordingly. Right now the state is in concurrent access. 
 
-As a USB stack, a TinyUSB component is used.
+### Not doing
+- [ ] Send and recieve HID data from rfid reader
+    - https://github.com/hathach/tinyusb/blob/master/examples/device/hid_composite/src/main.c#L111
+    - Use this to setup secondary HID control, this is exclusively for sending back bytes of cards (send_hid_report) (this is called seting up a new interface)
+    - Use tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2); as example
+    - Use tud_hid_set_report_cb to setup callback for recieving data (i.e for switching modes)
+- [ ] Figure out how to seutp unit tests and separate components instead of using h files for mocks
 
-## How to use example
+## Learns
+- Run `esptool.py erase_flash` to erase the flash before flashing with new boot[source](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)
+- Run `idf.py partition-table` to get the partition table deets
+- [https://github.com/SensorsIot/Morse-Trainer/blob/master/MTR_V3/MTR_V3/Coordinator.h#L135](Good demo for tasks), found on [this video](https://youtu.be/684KSAvYbw4?si=wxXziabIUMjCr8fs&t=1210)
+- The best commands for looping over a port even if it doesnt exist, this is veryyyy useful since most of the time this works out of the box
+    - `while ($true) { idf.py -p COM6 flash; Start-Sleep -Seconds 1 }`
+    - `while true; do idf.py flash -p /dev/ttyACM0; done`
+- tracking sdkconfig with git is rough especially between esp-idf versions, regenerate per requirement with following settings
+    - TinyUsb enable cdc
+    - TinyUsb enable hid
+    - enable serial console through custom uart, uart0 or cdc but using cdc diallows tinyusb components
 
-### Hardware Required
+### Timers
+- The [general purpose timer](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/peripherals/timer.html#general-purpose-timer) is just an abstraction layer over a hardware ISR timer, 
+similar to the teensy. It has a divider, a hardware counter frequency, a max count and an alarm (ISR callback);
+- The [high resolution timer](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/esp_timer.html) (misappropriately named, this is more of a general purpose, higher level timer) 
+is an abstraction over the general purpose timer. It can use software tasks and ISRS and other great functionality.
+- https://www.eevblog.com/forum/microcontrollers/esp32-timers/msg3955919/#msg3955919
 
-Any ESP board that have USB-OTG supported.
-
-#### Pin Assignment
-
-_Note:_ In case your board doesn't have micro-USB connector connected to USB-OTG peripheral, you may have to DIY a cable and connect **D+** and **D-** to the pins listed below.
-
-See common pin assignments for USB Device examples from [upper level](../../README.md#common-pin-assignments).
-
-Boot signal (GPIO0) is used to send HID reports to USB host.
-
-### Build and Flash
-
-Build the project and flash it to the board, then run monitor tool to view serial output:
+## Launch instructions
 
 ```bash
 idf.py -p PORT flash monitor
@@ -38,6 +64,7 @@ idf.py -p PORT flash monitor
 (To exit the serial monitor, type ``Ctrl-]``.)
 
 See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+
 
 ## Example Output
 

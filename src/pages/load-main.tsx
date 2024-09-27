@@ -4,14 +4,14 @@ import { useToast } from '@/hooks/useToast';
 import { Command } from '@tauri-apps/api/shell';
 import { useRouter } from 'next/navigation';
 import { useContext, useEffect, useRef, useState } from 'react';
-import { LoadedBinaryContext, LoadedBinaryState, PortContext } from './_app';
+import { DongleStateContext, DongleState, PortContext } from './_app';
 
 export default function ActiveView() {
 
 	const [isRunningCommand, setRunningCommand] = useState<boolean>(false);
 	const loadMainBinCommand = useRef<Command | null>(null);
 	const [selectedPort, setSelectedPort] = useContext(PortContext);
-	const [currBin, setCurrentBin] = useContext(LoadedBinaryContext);
+	const [currBin, setCurrentBin] = useContext(DongleStateContext);
 	const setToast = useToast();
 	const setError = useError();
 	const router = useRouter();
@@ -94,7 +94,7 @@ export default function ActiveView() {
 			return;
 		}
 		setRunningCommand(false);
-		setCurrentBin(LoadedBinaryState.CardReader);
+		setCurrentBin(DongleState.CardReader);
 		setToast("Successfully loaded the key binary!");
 
 		router.push("/");

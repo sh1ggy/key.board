@@ -2,7 +2,7 @@ import CommandTerminal from '@/components/CommandTerminal';
 import { Command } from '@tauri-apps/api/shell';
 import { useRouter } from 'next/navigation';
 import { useContext, useEffect, useRef, useState } from 'react';
-import { LoadedCardsContext, NewCardsContext, PortContext } from './_app';
+import { CardsContext, NewCardsContext, PortContext } from './_app';
 import { getEspBinDir } from '@/lib/services';
 import { useToast } from '@/hooks/useToast';
 
@@ -12,7 +12,7 @@ export default function SyncView() {
   const router = useRouter();
   const setToast = useToast();
   const [newCards, setNewCards] = useContext(NewCardsContext);
-  const [cards, setCards] = useContext(LoadedCardsContext);
+  const [cards, setCards] = useContext(CardsContext);
   const [selectedPort, setSelectedPort] = useContext(PortContext);
 
   const runCommands = async () => {

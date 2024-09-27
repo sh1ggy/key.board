@@ -4,7 +4,7 @@
     "beforeBuildCommand": "npm run build && npm run export",
     "beforeDevCommand": "npm run dev",
     "devPath": "http://localhost:3000",
-    "distDir": "../out",
+    "distDir": "../dist",
     "withGlobalTauri": true
   },
   "package": {
@@ -45,22 +45,7 @@
             "args": true
           },
           {
-            "name": "bin/dist/parttool",
-            "sidecar": true,
-            "args": true
-          },
-          {
             "name": "bin/dist/esptool",
-            "sidecar": true,
-            "args": true
-          },
-          {
-            "name": "bin/dist/analyze_nvs",
-            "sidecar": true,
-            "args": true
-          },
-          {
-            "name": "bin/dist/nvs_gen",
             "sidecar": true,
             "args": true
           }
@@ -75,10 +60,7 @@
         "depends": []
       },
       "externalBin": [
-        "bin/dist/parttool",
-        "bin/dist/esptool",
-        "bin/dist/analyze_nvs",
-        "bin/dist/nvs_gen"
+        "bin/dist/esptool"
       ],
       "resources": [
         "bin/arduino-bins/*"
@@ -117,11 +99,10 @@
     "windows": [
       {
         "fullscreen": false,
-        "maximized": true,
         "height": 700,
+        "width": 1200,
         "resizable": true,
-        "title": "key.board",
-        "width": 1200
+        "title": "key.board"
       }
     ]
   }

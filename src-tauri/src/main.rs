@@ -4,30 +4,123 @@
 )]
 
 mod serial;
+use anyhow::{anyhow, bail};
+use core::time;
+use futures::future::join_all;
+use serde::{Deserialize, Serialize};
+use serial::get_port_instance;
+use std::error::Error;
+use std::ops::Deref;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::{
-    error::Error,
-    sync::{atomic::AtomicBool, Arc, Mutex},
-    time::{self},
-};
+use tauri::async_runtime::spawn_blocking;
 use tauri::{
     api::process::{Command, CommandEvent},
+    async_runtime::{channel, Receiver, Sender},
     App, AppHandle, Config, Manager, Runtime, State,
 };
+use tokio::sync::{oneshot, RwLock};
+use tokio::time::timeout;
 
 // Need to implement serde::deserialize trait on this to use in command
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct Card {
+#[derive(Deserialize, Serialize, Debug)]
+struct NewCard {
     name: String,
     password: String,
-    rfid: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "request_type")]
+enum DongleRequest {
+    // TX
+    // https://serde.rs/variant-attrs.html
+    #[serde(rename = "get_pass_descs")]
+    GetPasswordDescriptionsAndSwitchReader,
+    #[serde(rename = "board_switch_main")]
+    BoardSwitchMain,
+    #[serde(rename = "send_new_card")]
+    NewCard(NewCard),
+    // This has the same effect as above
+    #[serde(rename = "clear_card")]
+    ClearCard {
+        index: u32,
+    },
+    #[serde(rename = "clear_db")]
+    ClearDb,
+}
+
+impl DongleRequest {
+    fn has_response(&self) -> bool {
+        match self {
+            DongleRequest::GetPasswordDescriptionsAndSwitchReader => true,
+            DongleRequest::NewCard(_) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "response_type")]
+enum DongleResponse {
+    // RX
+    #[serde(rename = "get_pass_descs")]
+    SendPasswordDescriptions(PasswordDescriptions),
+
+    #[serde(rename = "detected_rfid")]
+    RFIDDetected(RFID),
+
+    #[serde(rename = "send_new_card")]
+    ConfirmNewCard,
+    #[serde(rename = "clear_card")]
+    ClearCard,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PasswordLessCard {
+    name: String,
+    rfid: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct PasswordDescriptions {
+    descriptions: Vec<PasswordLessCard>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct RFID {
+    rfid: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+enum KeyDotErrors {
+    CouldNotOpenPort { error: String },
+    NoPortConnection { error: String },
+    CouldNotStopSerialThread { error: String },
+    UndigestableJson { error: String, json: String },
+    ServerError { error: String },
+}
+
+type ReaderThreadLock = Arc<RwLock<Option<SerialThreadInstance>>>;
+
 // You can have multiple states in tauri app, check https://github.com/tauri-apps/tauri/blob/dev/examples/state/main.rs
+//State is just a wrapper on Arc, so you need to use Mutexes ursefl, it allows this to imeplement DerefMut
 struct ReaderThreadState {
-    // Mutex allows our struct to implement DerefMut
-    reader_thread: Mutex<Option<thread::JoinHandle<Result<(), String>>>>,
+    // Rwlock (tokio) or Mutex(std) can be used here since they implement Send+Sync
+    reader_thread: ReaderThreadLock,
+    // Sending this to another thread hence the Arc
     kill_signal: Arc<AtomicBool>,
+}
+#[derive(Debug)]
+pub struct SerialThreadRequest {
+    payload: DongleRequest,
+    ret: oneshot::Sender<anyhow::Result<DongleResponse>>,
+}
+
+// Dont need to store a port instance on this since the PORT object is closed when out of scope
+struct SerialThreadInstance {
+    thread: thread::JoinHandle<anyhow::Result<()>>,
+    sender: Sender<SerialThreadRequest>,
 }
 
 #[derive(Default)]
@@ -97,85 +190,6 @@ async fn test<R: Runtime>(
     Ok((String::new()))
 }
 
-fn save_cards_to_csv(cards: Vec<Card>, config: Arc<Config>) -> Result<String, Box<dyn Error>> {
-    // TODO: Use anyhow to propogate errors in this in a way that doesnt need to make a new function or use a closure
-    let mut path =
-        tauri::api::path::app_local_data_dir(&config).unwrap_or(std::path::PathBuf::from("./temp"));
-    std::fs::create_dir_all(&path)?;
-
-    path.push("to_save.csv");
-    println!("Saving csv at: {:?}", path);
-    let mut wtr = csv::Writer::from_path(&path)?;
-    wtr.write_record(&["key", "type", "encoding", "value"])?;
-    wtr.write_record(&["kb", "namespace", "", ""])?;
-
-    let mut uid_buffer = String::new();
-    let uid_count = cards.len();
-
-    for (i, card) in cards.iter().enumerate() {
-        // println!("card lol: {:?}", card);
-
-        // let mut my_vector: Vec<&str> = Vec::new();
-
-        // my_vector.push(&card.name);
-
-        let key = format!("name{}", i.to_string());
-        let card_name = &card.name;
-        let record = [&key, "data", "string", card_name];
-        wtr.write_record(record)?;
-
-        let key = format!("pass{}", i.to_string());
-        let card_pass = &card.password;
-        let record = [&key, "data", "string", card_pass];
-        wtr.write_record(record)?;
-
-        // let hex_string_trimmed: String = hex_string
-        //     .replace('\0', "")
-        //     .trim()
-        //     .chars()
-        //     .filter(|c| !c.is_whitespace())
-        //     .collect();
-
-        // let maybe_hex = hex::decode(hex_string_trimmed);
-        let new_uid_string = card.rfid.trim().replace(" ", "");
-        uid_buffer.push_str(&new_uid_string);
-    }
-    wtr.write_record(&["uids", "data", "hex2bin", &uid_buffer])?;
-    wtr.write_record(&["num_cards", "data", "u32", &uid_count.to_string()])?;
-
-    match path.to_str() {
-        Some(str) => Ok(str.into()),
-        None => Err(
-            "HEy man, path for path buf could not be computed, prolly not a valid utf-8 string"
-                .into(),
-        ),
-    }
-}
-
-// We cant use this because dyn Error doesnt implement Serialize but string does :)
-// async fn save_card(value: String) -> Result<(), Box<dyn Error>> {
-#[tauri::command]
-async fn save_cards_to_csv_command(
-    app: AppHandle,
-    cards: Vec<Card>,
-    // port: String,
-) -> Result<String, String> {
-    // let confRef = &app.config();
-
-    // Because we are now using the value of path_to_csv, the config reference that has to be passed into save_cards becomes invalid because the return type may use it later
-    let path_to_csv = save_cards_to_csv(cards, app.config());
-
-    // Ok(("Hey".into()))
-    match path_to_csv {
-        Ok(path_to_csv) => Ok(path_to_csv.to_string()),
-        Err(err) => {
-            let err_string = format!("Could not csv: {}", err.to_string());
-            println!("{err_string}");
-            return Err(err_string);
-        }
-    }
-}
-
 #[tauri::command]
 async fn get_current_working_dir() -> Result<String, String> {
     match std::env::current_exe() {
@@ -191,24 +205,22 @@ async fn get_current_working_dir() -> Result<String, String> {
 }
 
 fn kill_old_server_thread(
-    maybe_old_thread: &mut Option<JoinHandle<Result<(), String>>>,
+    maybe_old_thread: &mut Option<SerialThreadInstance>,
     // Techinically the atomic bool here is mutable because the reference to the arc is just a reference to heap
-    killer: &Arc<AtomicBool>,
-) -> Result<bool, String> {
+    killer: Arc<AtomicBool>,
+) -> anyhow::Result<bool> {
     // Take grabs the value from Option, leaving a none in its place, we need the value in order to actually run join
     match maybe_old_thread.take() {
         Some(old_thread) => {
             println!("Stopping old thread");
             killer.store(true, std::sync::atomic::Ordering::SeqCst);
             old_thread
+                .thread
                 .join()
-                // .unwrap();
-                // Ok(true)
-                .unwrap_or(Err("Could not join thread".to_string()))
+                .map_err(|e| anyhow!("Could not join old thread"))?
                 // // The map here propogates the result string if its err, but exports an Ok(true) if not
                 .map(|_| true)
         }
-
         None => Ok(false),
     }
 }
@@ -217,12 +229,13 @@ fn kill_old_server_thread(
 async fn start_listen_server(
     window: tauri::Window,
     // Anonymous lifetime specified here because the state object needs to exist for the duration of the function and has reference to AppState
-    state: State<'_, ReaderThreadState>,
+    mut state: State<'_, ReaderThreadState>,
     port: String,
-) -> Result<(), String> {
-    let mut maybe_old_thread = state.reader_thread.lock().unwrap();
+) -> Result<(), KeyDotErrors> {
+    println!("Killing old thread if it exists");
+    let mut maybe_old_thread = state.reader_thread.write().await;
 
-    let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal);
+    let old_kill_res = kill_old_server_thread(&mut maybe_old_thread, state.kill_signal.clone());
     println!("{:?}", old_kill_res);
 
     // Using release here to ensure syncronisation of the CPU cache on store so that it gets commited to all threads,
@@ -232,12 +245,32 @@ async fn start_listen_server(
         .store(false, std::sync::atomic::Ordering::SeqCst);
     println!("Starting reader");
 
+    // let port = get_port_instance(&port).map_err(|e| KeyDotErrors::CouldNotOpenPort(e.to_string()))?;
+    let port = get_port_instance(&port).unwrap();
+
     let app = window.app_handle().clone();
     let kil_signal_clone = state.kill_signal.clone();
+    let (sender, receiver) = channel(32);
 
-    let thread_handle = thread::spawn(move || serial::read_rfid(app, kil_signal_clone, port));
+    let rw_lock_clone = state.reader_thread.clone();
+    let killer_clone = state.kill_signal.clone();
 
-    *maybe_old_thread = Some(thread_handle);
+    let kill_callback = move || {
+        // Ok so this blocking call should be fine since the kill callback is likely to return anyway, FnOnce guarantees that too
+        let mut maybe_old_thread = rw_lock_clone.blocking_write();
+        // Cant join from the thread itself, dont need to call kill_old_thread, besides that makes no sense
+        *maybe_old_thread = None;
+        anyhow::Ok(())
+    };
+
+    let thread_handle = thread::spawn(move || {
+        serial::serial_comms_loop(app, kil_signal_clone, port, receiver, kill_callback)
+    });
+
+    *maybe_old_thread = Some(SerialThreadInstance {
+        thread: thread_handle,
+        sender,
+    });
 
     // This returns the error if it exists after the new one got started
     // old_kill_res?;
@@ -245,11 +278,160 @@ async fn start_listen_server(
     Ok(())
 }
 
+#[tauri::command]
+async fn test_sync_loop(mut state: tauri::State<'_, ReaderThreadState>) -> Result<String, String> {
+    // Assume listen server is on
+    #[cfg(feature = "test-sync")]
+    {
+        // Make multiple concurrent requests to get_cards_db
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let state_clone = state.reader_thread.clone();
+            let handle = tauri::async_runtime::spawn(async move {
+                let cards = test_send_queries(state_clone).await;
+                println!("{:?}", cards);
+            });
+            handles.push(handle);
+        }
+        // Wait for all the handles to finish
+        join_all(handles).await;
+
+        // Other thread should try and kill itself
+    }
+
+    Ok("Hey".to_owned())
+}
+
+#[cfg(feature = "test-sync")]
+async fn test_send_queries(reader_thread: ReaderThreadLock) {
+    let state = reader_thread.read().await;
+    if let Some(state) = &*state {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::GetPasswordDescriptionsAndSwitchReader,
+            ret: ret_tx,
+        };
+        let serial_sender = &state.sender;
+        serial_sender.send(request).await.unwrap();
+    }
+}
+
+#[tauri::command]
+async fn get_cards_db(
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<PasswordDescriptions, String> {
+    println!("Getting cards");
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+    if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::GetPasswordDescriptionsAndSwitchReader,
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
+        if let DongleResponse::SendPasswordDescriptions(password_descs) = response {
+            Ok(password_descs)
+        } else {
+            Err("Did not get password payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
+}
+
+#[tauri::command]
+async fn send_new_card(
+    card: NewCard,
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<(), String> {
+    println!("Sending card {:?}", card);
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+
+    if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::NewCard(card),
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
+        if let DongleResponse::ConfirmNewCard = response {
+            Ok(())
+        } else {
+            Err("Did not get password payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
+}
+
+#[tauri::command]
+async fn clear_card(
+    index: u32,
+    state: tauri::State<'_, ReaderThreadState>,
+) -> Result<(), String> {
+    println!("Clearing card {:?}", index);
+    let mut maybe_sender = None;
+    {
+        let state = state.reader_thread.read().await;
+        if let Some(state) = &*state {
+            let serial_sender = state.sender.clone();
+            maybe_sender = Some(serial_sender);
+        }
+    }
+
+    if let Some(sender) = maybe_sender {
+        let (ret_tx, ret_rx) = oneshot::channel();
+        let request = SerialThreadRequest {
+            payload: DongleRequest::ClearCard{ index },
+            ret: ret_tx,
+        };
+        sender.send(request).await.unwrap();
+        println!("Sent req to reader_thread");
+
+        let response = ret_rx.await.unwrap();
+        let response = response.map_err(|e| e.to_string())?;
+        if let DongleResponse::ClearCard = response {
+            Ok(())
+        } else {
+            Err("Did not get correct clear card payload".to_owned())
+        }
+    } else {
+        Err("Could not get sender".to_owned())
+    }
+}
+
+
 // This HAS to be async in order to join properly so that the join doesnt block the main thread
 #[tauri::command]
-async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, String> {
-    let mut maybe_old_thread = state.reader_thread.lock().unwrap();
-    kill_old_server_thread(&mut maybe_old_thread, &state.kill_signal)
+async fn stop_listen_server(state: State<'_, ReaderThreadState>) -> Result<bool, KeyDotErrors> {
+    let mut maybe_old_thread = state.reader_thread.write().await;
+    kill_old_server_thread(&mut maybe_old_thread, state.kill_signal.clone()).map_err(|e| {
+        KeyDotErrors::CouldNotStopSerialThread {
+            error: e.to_string(),
+        }
+    })
 }
 
 #[tauri::command]
@@ -264,16 +446,18 @@ fn get_ports() -> Vec<String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            save_cards_to_csv_command,
             get_ports,
             start_listen_server,
             test,
             get_current_working_dir,
-            stop_listen_server
+            stop_listen_server,
+            get_cards_db,
+            send_new_card,
+            test_sync_loop
         ])
         // .setup(|app| setup(app))
         .manage(ReaderThreadState {
-            reader_thread: Mutex::new(None),
+            reader_thread: Arc::new(RwLock::new(None)),
             kill_signal: Arc::new(AtomicBool::new(true)),
         })
         .run(tauri::generate_context!())

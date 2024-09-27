@@ -1,126 +1,126 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation';
-
-// import { listen } from '@tauri-apps/api/event'
-// import { invoke } from '@tauri-apps/api/tauri'
-// import { Command } from '@tauri-apps/api/shell'
-import { getPorts, reflashPartition, test } from '@/lib/services'
-import { CardsView, CardsViewProps } from '@/components/CardsView'
-import { Navbar } from '@/components/Navbar'
-import { LoadedBinaryContext, LoadedCardsContext, NewCardsContext, PortContext } from './_app'
+'use client';
+import { useContext, useEffect, useRef, useState } from "react";
+import { getCardsDb, getCurrentWorkingDir, getEspBinDir, getPorts, getReadBinDir, startImports, startlistenServer, stoplistenServer, test, testSyncLoop } from "@/lib/services";
+import { DongleStateContext, DongleState, CardsContext, PortContext } from "./_app";
 import { useToast } from '@/hooks/useToast';
-import { arraysEqual } from '@/lib/utils';
-import { LoadedBinaryState } from './_app';
+import { useRouter } from 'next/navigation';
+import React from "react";
+import CommandTerminal from "@/components/CommandTerminal";
+import type { Command } from '@tauri-apps/api/shell';
+import { useError } from "@/hooks/useError";
+import { truncateString } from "@/lib/utils";
+// import { invoke } from "@tauri-apps/api";
 
 
-export interface Card {
-  name: string;
-  password: string;
-  rfid: string;
+
+export default function PortSelection() {
+	const [ports, setPorts] = useState<string[]>([]);
+	const [selectedPort, setSelectedPort] = useContext(PortContext);
+	const setToast = useToast();
+	const router = useRouter();
+	const getDataCommand = useRef<Command | null>(null);
+	const [isRunningCommand, setRunningCommand] = useState<boolean>(false);
+	const [cards, setCards] = useContext(CardsContext);
+	const [currBin, setCurrentBin] = useContext(DongleStateContext);
+	const setError = useError();
+
+	useEffect(() => {
+		const init = async () => {
+			await startImports();
+
+			// console.log(await invoke<string[]>('get_ports'));
+			const recvPorts = await getPorts();
+			setPorts(recvPorts);
+			if (recvPorts.length != 0)
+				setSelectedPort(recvPorts[0]);
+		}
+		console.log({ cards });
+
+		init();
+		// router.push("/main");
+	}, [])
+
+	const proceedToCardsScreen = async () => {
+		if (selectedPort == null) {
+			setError("Select a port first");
+			return;
+		}
+		try {
+			await startlistenServer(selectedPort);
+			let gottenCards = await getCardsDb();
+			console.log({ gottenCards });
+			setCards(gottenCards.descriptions);
+		}
+		catch (e: any) {
+			console.error(e);
+			setError("Error connecting to ESP32", e);
+			return;
+		}
+
+		setToast("Finished loading data from ESP!");
+		setCurrentBin(DongleState.CardReader);
+		router.push("/main");
+	}
+
+
+	return (
+		<>
+			<button
+				onClick={async () => {
+					const recvPorts = await getPorts();
+					setPorts(recvPorts);
+				}}
+				className="flex px-2 text-sm font-medium text-right justify-end w-full text-white bg-black py-3">
+				Force Refresh Ports
+			</button>
+
+			{/* <button
+				onClick={async () => {
+					await stoplistenServer();
+					// await testSyncLoop();
+				}}
+				className="flex px-2 text-sm font-medium text-right justify-end w-full text-white bg-black py-3">
+					Test Sync loop
+			</button> */}
+
+			<div className="flex flex-col items-center bg-[#292828] h-full w-full">
+				<div className="justify-center text-white w-full text-xl py-6 px-3 bg-[#213352]"><strong>Port Selection</strong></div>
+				<ul className="text-sm text-black w-full bg-[#51555D]" aria-labelledby="dropdownDefaultButton">
+					{
+						(ports.length == 0) ?
+							<li>
+								<a className="select-none block w-full px-3 py-2 text-white bg-gray-500">No ports</a>
+							</li>
+							:
+							ports.map((p, i) => {
+								return (
+									<>
+										{(selectedPort == p) ?
+											<li key={i} className="cursor-pointer">
+												<a className="select-none block w-full px-3 py-2 bg-gray-500 text-white" onClick={() => {
+													setSelectedPort(p);
+												}}>{p}</a>
+											</li>
+											:
+											<li key={i} className="cursor-pointer">
+												<a className="select-none block w-full px-3 py-2 text-white hover:bg-gray-100 dark:hover:bg-gray-600 dark:hover:text-white active:animate-pulse" onClick={() => {
+													setSelectedPort(p);
+												}}>{p}</a>
+											</li>
+										}
+									</>
+								)
+							})
+					}
+				</ul>
+				<code className='bg-[#8F95A0] w-full p-3 px-3 text-sm'><strong>Selected Port: </strong>{!selectedPort ? "N/A" : selectedPort}</code>
+				<button
+					disabled={isRunningCommand}
+					onClick={proceedToCardsScreen}
+					className="flex disabled:bg-green-800 disabled:cursor-not-allowed disabled:text-slate focus:ring-4 focus:outline-none focus:ring-green-300 text-sm p-3 font-medium text-center items-center justify-center w-full text-white bg-green-600 hover:bg-green-700 py-3">
+					Connect to Device
+				</button>
+			</div>
+		</>
+	)
 }
-
-interface error {
-  title: string;
-  message: string;
-}
-
-
-function App() {
-  // const [rfidPayload, setRfidPayload] = useState<RFIDPayload>({
-  //   uid: "",
-  //   error: "",
-  // });
-  const [error, setError] = useState<error>({
-    title: "",
-    message: "",
-  });
-  const setToast = useToast();
-  const router = useRouter();
-  const [selectedPort, setSelectedPort] = useContext(PortContext);
-  const [cards, setCards] = useContext(LoadedCardsContext);
-  const [newCards, setNewCards] = useContext(NewCardsContext);
-  const [binary, setBinary] = useContext(LoadedBinaryContext);
-
-  useEffect(() => {
-    // Listen to tauri events
-
-    // const unlistenError = listen<error>("error", (e) => {
-    //   console.log(e.payload);
-    //   setError(e.payload)
-    // })
-
-    // setTimeout(() => init(), 2000);
-
-    return (() => {
-      // Unsubscribe from tauri events
-      // unlistenRFID;
-      // unlistenError;
-    })
-  }, []);
-
-
-
-  const clearData = async () => {
-    // const clearData = await invoke('start_listen_server', { "port": selectedPort });
-    // await setCards([]);
-    setToast("Cards cleared!");
-  }
-
-  return (
-    <>
-      <Navbar />
-      <div className={'flex flex-col w-full items-center min-h-screen bg-[rgb(41,40,40)] overflow-hidden'}>
-        <div className="flex flex-col w-full items-center p-9 bg-[#5D616C] rounded-b-lg">
-          <code className='bg-[#373a41] p-3 my-3 rounded-lg text-[#F7C546]'>
-            <strong>Loaded Binary:</strong> {LoadedBinaryState[binary]}
-          </code>
-          <div className='flex flex-row my-8'>
-            <code
-              onClick={() => {
-                setSelectedPort(null);
-                router.push('/ports');
-              }}
-              className='cursor-pointer transition duration-300 hover:scale-105 bg-[#8F95A0] p-3 rounded-lg'>
-              <strong>Port Selected: </strong>{selectedPort}
-            </code>
-            {binary != LoadedBinaryState.Key &&
-              <>
-                <button
-                  className="text-gray cursor-pointer transition duration-300 hover:scale-105 text-center p-3 ml-5 focus:ring-4 focus:outline-none focus:ring-green-300 bg-green-600 rounded-lg text-white"
-                  onClick={() => {
-                    router.push('/load-main');
-                  }}>
-                  Load Key Binary
-                </button>
-              </>
-            }
-          </div>
-          <div className='flex flex-col'>
-            <button className="text-gray cursor-pointer transition duration-300 hover:scale-105 ext-center p-3 m-3 bg-[#292828] focus:ring-4 focus:outline-none focus:ring-[#454444] rounded-lg text-white"
-              onClick={() => {
-                router.push('/create');
-              }}>
-              Create Card
-            </button>
-          </div>
-        </div>
-        <div className='flex flex-row flex-wrap items-center pb-24'>
-          {newCards.length == 0 ?
-            <div className="pt-24 text-white">No cards!
-            </div>
-            :
-            <div className='flex flex-wrap items-center justify-center'>
-              {newCards.map((c, i) => {
-                return (
-                  <CardsView key={i} card={c} cardIndex={i} />
-                )
-              })}
-            </div>
-          }
-        </div>
-      </div >
-    </>
-  )
-}
-
-export default App

@@ -1,4 +1,4 @@
-import { Card } from "@/pages";
+import { Card } from "@/pages/main";
 import { useContext, useEffect, useState } from "react";
 import { NewCardsContext } from "@/pages/_app";
 import { useToast } from "@/hooks/useToast";

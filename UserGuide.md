@@ -1,4 +1,8 @@
 ## User Guide
+Note: This is not meant as a replacement to remembering your passwords, please use your password manager or your brain for that.
+*YOU WILL FORGET YOUR PASSWORDS IF YOU RELY TOO MUCH ON THIS*.
+My recommendation is to practise your password every month or so.
+
 ### General Workflow
 This will summarise the intended usage of the application 
 1. Install and run the keyDOTboard application
@@ -34,7 +38,7 @@ After creating a card it will automatically navigate you back to the home screen
 #### Manual RFID Input
 ![](./public/readme/create.png)
 1. Fill out the UID of the RFID card
-2. Fill out the name of the card
+2. Fill out the name of the card, **This name cannot be longer than 12 characters [(enforced by esp32s limit on key length)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html#keys-and-values)**
 3. Fill out the password that you want to be using to login
 4. Press **Create Card**
 

@@ -18,6 +18,20 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "string": "cpp",
-        "unordered_map": "cpp"
-    }
+        "unordered_map": "cpp",
+        "keyboard_ops.h": "c",
+        "typeinfo": "c",
+        "tinyusb.h": "c",
+        "*.tcc": "cpp",
+        "random": "cpp",
+        "functional": "cpp",
+        "type_traits": "cpp",
+        "cards.h": "c",
+        "rc522.h": "c",
+        "rfid.h": "c",
+        "stdlib.h": "c",
+        "keydot_led.h": "c"
+    },
+    "idf.toolsPathWin": "C:/Espressif",
+    "idf.espIdfPathWin": "C:/Espressif/frameworks/esp-idf-v5.0.6"
 }
